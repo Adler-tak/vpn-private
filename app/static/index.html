@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPN Private - پنل مدیریت و کاربری</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap');
+    body, * {
+      font-family: 'Vazirmatn', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(100, 116, 139, 0.3);
+      border-radius: 4px;
+    }
+    .telegram-bg {
+      background-color: #0e1621;
+      background-image: radial-gradient(#17212b 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased p-2 md:p-6 select-none">
+
+  <!-- Container -->
+  <div class="max-w-5xl mx-auto space-y-6">
+
+    <!-- Header & Mode Switcher -->
+    <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 md:p-5 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-lg md:text-xl font-bold flex items-center gap-2">
+            <span>سامانه هوشمند VPN Private</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20">نسخه v3.11</span>
+          </h1>
+          <p class="text-xs text-[var(--muted-foreground)]">پیش‌نمایش تعاملی و زنده‌ی پنل کاربری تلگرام، پنل مدیریت ادمین و داشبورد 3x-ui</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="flex items-center bg-[var(--background)] p-1 rounded-xl border border-[var(--border)] w-full md:w-auto">
+        <button id="tab-user" onclick="switchView('user')" class="flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-sm">
+          <span>👤 پنل کاربر (مشتری)</span>
+        </button>
+        <button id="tab-admin" onclick="switchView('admin')" class="flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          <span>🛡 پنل مدیریت (ادمین)</span>
+          <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+        </button>
+        <button id="tab-xui" onclick="switchView('xui')" class="flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          <span>🖥 پنل سرور (3x-ui)</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- MAIN VIEWPORT: Simulated Devices -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+
+      <!-- LEFT: Mobile Telegram Device Simulator (7 cols) -->
+      <div class="lg:col-span-7 flex justify-center">
+        <div class="w-full max-w-[420px] rounded-[38px] p-3 bg-slate-900 border-4 border-slate-700/80 shadow-2xl shadow-black/40 ring-1 ring-white/10">
+          
+          <!-- Phone Speaker & Notch -->
+          <div class="flex justify-center mb-1.5">
+            <div class="w-24 h-4 bg-slate-800 rounded-full flex items-center justify-center">
+              <div class="w-12 h-1 bg-slate-700 rounded-full"></div>
+            </div>
+          </div>
+
+          <!-- Telegram App Screen Container -->
+          <div class="telegram-bg rounded-[28px] overflow-hidden flex flex-col h-[650px] border border-slate-800 text-slate-100">
+            
+            <!-- Telegram Status Bar -->
+            <div class="px-5 pt-2 pb-1 flex justify-between items-center text-[11px] text-slate-400 font-sans select-none">
+              <span id="current-time">14:32</span>
+              <div class="flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"/></svg>
+                <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zm-2.829 2.828a3 3 0 00-4.242 0 1 1 0 01-1.415-1.414 5 5 0 017.072 0 1 1 0 01-1.415 1.414zM9 16a1 1 0 011-1h.01a1 1 0 110 2H10a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                <span class="font-bold">87%</span>
+              </div>
+            </div>
+
+            <!-- Telegram Top App Bar -->
+            <div class="bg-[#17212b] px-4 py-2.5 flex items-center justify-between border-b border-[#242f3d] shadow-sm">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center font-bold text-white text-sm shadow">
+                  VP
+                </div>
+                <div>
+                  <h3 id="appbar-title" class="text-sm font-bold text-white flex items-center gap-1.5">
+                    <span>VPN Private</span>
+                    <svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                  </h3>
+                  <p id="appbar-status" class="text-[11px] text-slate-400">bot</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 text-slate-400">
+                <button class="p-1 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></button>
+                <button class="p-1 hover:text-white"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z"/></svg></button>
+              </div>
+            </div>
+
+            <!-- CHAT BUBBLES SCROLL AREA -->
+            <div id="chat-messages" class="flex-1 p-3.5 space-y-3.5 overflow-y-auto custom-scrollbar text-xs">
+              
+              <!-- USER VIEW CONTENT -->
+              <div id="content-user" class="space-y-3.5">
+                
+                <!-- Date Pill -->
+                <div class="flex justify-center">
+                  <span class="px-3 py-0.5 rounded-full bg-[#182533]/80 text-slate-400 text-[10px]">امروز</span>
+                </div>
+
+                <!-- Bot Welcome Message -->
+                <div class="bg-[#182533] p-3 rounded-2xl rounded-tr-none border border-[#2b394a] shadow-sm max-w-[92%] space-y-2">
+                  <div class="flex items-center gap-1.5 text-indigo-400 font-bold text-xs">
+                    <span>🔒 به پلتفرم هوشمند VPN Private خوش آمدید!</span>
+                  </div>
+                  <p class="text-slate-300 leading-relaxed text-[11px]">
+                    اتصال پایدار، پرسرعت و امن با پروتکل‌های نوین <b>VLESS Reality</b> و <b>Trojan</b>. جهت سفارش یا مدیریت اشتراک‌های خود، گزینه‌های زیر را انتخاب فرمایید:
+                  </p>
+                  <div class="grid grid-cols-2 gap-1.5 pt-1">
+                    <button onclick="simulateAction('خرید سرویس')" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-cyan-400 py-1.5 px-2 rounded-lg text-[11px] font-medium text-center transition">
+                      🛒 خرید سرویس جدید
+                    </button>
+                    <button onclick="simulateAction('سرویس‌های من')" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-cyan-400 py-1.5 px-2 rounded-lg text-[11px] font-medium text-center transition">
+                      📦 سرویس‌های فعال
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Active Subscription Card (Key Feature) -->
+                <div class="bg-[#182533] p-3.5 rounded-2xl rounded-tr-none border border-[#2b394a] shadow-sm max-w-[94%] space-y-3">
+                  <div class="flex items-center justify-between border-b border-[#242f3d] pb-2">
+                    <span class="font-bold text-white flex items-center gap-1.5">
+                      <span>📦 سرویس فعال شما</span>
+                      <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-[10px] border border-emerald-500/30">فعال</span>
+                    </span>
+                    <span class="text-[10px] text-slate-400">شناسه: #sub_8831</span>
+                  </div>
+
+                  <!-- Subscription Specs Grid -->
+                  <div class="grid grid-cols-2 gap-2 text-[11px]">
+                    <div class="bg-[#242f3d]/60 p-2 rounded-xl">
+                      <span class="text-slate-400 block text-[10px]">🌍 موقعیت سرور</span>
+                      <span class="font-bold text-white flex items-center gap-1">🇩🇪 آلمان (فرانکفورت)</span>
+                    </div>
+                    <div class="bg-[#242f3d]/60 p-2 rounded-xl">
+                      <span class="text-slate-400 block text-[10px]">📡 پروتکل اتصال</span>
+                      <span class="font-bold text-purple-400">VLESS (Reality)</span>
+                    </div>
+                  </div>
+
+                  <!-- Usage Progress Bar -->
+                  <div class="space-y-1">
+                    <div class="flex justify-between text-[11px]">
+                      <span class="text-slate-400">📊 مصرف ترافیک:</span>
+                      <span class="font-bold text-cyan-400">۲۴.۵ / ۵۰ گیگابایت (۴۹٪)</span>
+                    </div>
+                    <div class="w-full bg-[#242f3d] h-2 rounded-full overflow-hidden p-0.5">
+                      <div class="bg-gradient-to-r from-cyan-500 to-indigo-500 h-full rounded-full" style="width: 49%"></div>
+                    </div>
+                    <div class="flex justify-between text-[10px] text-slate-400 pt-0.5">
+                      <span>⏳ اعتبار باقی‌مانده: <b>۲۱ روز</b></span>
+                      <span>انقضا: ۲۰۲۶/۱۱/۲۳</span>
+                    </div>
+                  </div>
+
+                  <!-- QR Code & Link Area -->
+                  <div class="bg-[#121922] p-2.5 rounded-xl flex items-center gap-3 border border-[#242f3d]">
+                    <!-- Embedded SVG QR Code -->
+                    <div class="w-14 h-14 bg-white p-1 rounded-lg shrink-0 flex items-center justify-center">
+                      <svg class="w-full h-full text-black" viewBox="0 0 100 100" fill="currentColor">
+                        <rect x="0" y="0" width="30" height="30"/>
+                        <rect x="5" y="5" width="20" height="20" fill="white"/>
+                        <rect x="10" y="10" width="10" height="10"/>
+                        <rect x="70" y="0" width="30" height="30"/>
+                        <rect x="75" y="5" width="20" height="20" fill="white"/>
+                        <rect x="80" y="10" width="10" height="10"/>
+                        <rect x="0" y="70" width="30" height="30"/>
+                        <rect x="5" y="75" width="20" height="20" fill="white"/>
+                        <rect x="10" y="80" width="10" height="10"/>
+                        <rect x="35" y="10" width="10" height="20"/>
+                        <rect x="50" y="15" width="15" height="10"/>
+                        <rect x="35" y="45" width="30" height="15"/>
+                        <rect x="40" y="70" width="15" height="20"/>
+                        <rect x="70" y="40" width="20" height="15"/>
+                        <rect x="75" y="70" width="20" height="20"/>
+                      </svg>
+                    </div>
+                    <div class="overflow-hidden flex-1 space-y-1">
+                      <span class="text-[10px] text-slate-400 block">لینک اتصال مستقیم سابسکرایب:</span>
+                      <code class="text-[9px] text-slate-300 font-mono block truncate bg-black/40 p-1 rounded">vless://e891c28f-7b@de.vpnprivate.net:443?type=tcp...</code>
+                      <button onclick="copyLink()" class="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                        <span>کپی کانفیگ اختصاصی</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Inline Actions -->
+                  <div class="grid grid-cols-3 gap-1.5 pt-1">
+                    <button onclick="simulateAction('دریافت بارکد QR')" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-white py-1.5 px-2 rounded-lg text-[10px] font-medium text-center transition flex items-center justify-center gap-1">
+                      <span>📱 بارکد QR</span>
+                    </button>
+                    <button onclick="simulateAction('تمدید سرویس')" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-emerald-400 py-1.5 px-2 rounded-lg text-[10px] font-medium text-center transition flex items-center justify-center gap-1">
+                      <span>🔄 تمدید</span>
+                    </button>
+                    <button onclick="simulateAction('استعلام ترافیک')" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-cyan-400 py-1.5 px-2 rounded-lg text-[10px] font-medium text-center transition flex items-center justify-center gap-1">
+                      <span>📊 حجم زنده</span>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- ADMIN VIEW CONTENT (HIDDEN BY DEFAULT) -->
+              <div id="content-admin" class="space-y-3.5 hidden">
+                
+                <!-- Admin Dashboard Overview Message -->
+                <div class="bg-[#182533] p-3.5 rounded-2xl rounded-tr-none border border-amber-500/30 shadow-sm max-w-[95%] space-y-3">
+                  <div class="flex items-center justify-between border-b border-[#242f3d] pb-2">
+                    <span class="font-bold text-amber-400 flex items-center gap-1.5">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      <span>⚙️ داشبورد مدیریت کل سیستم</span>
+                    </span>
+                    <span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 text-[10px] border border-amber-500/20 font-bold">سطح دسترسی: SuperAdmin</span>
+                  </div>
+
+                  <!-- Financial & Operational Stats -->
+                  <div class="grid grid-cols-2 gap-2 text-[11px]">
+                    <div class="bg-[#242f3d]/70 p-2.5 rounded-xl border border-[#2b394a]">
+                      <span class="text-slate-400 block text-[10px]">💵 درآمد امروز</span>
+                      <span class="font-bold text-emerald-400 text-sm">۴,۸۵۰,۰۰۰ تومان</span>
+                      <span class="text-[9px] text-slate-400 mt-0.5 block">۲۴ تراکنش تایید شده</span>
+                    </div>
+                    <div class="bg-[#242f3d]/70 p-2.5 rounded-xl border border-[#2b394a]">
+                      <span class="text-slate-400 block text-[10px]">💰 فروش ماه جاری</span>
+                      <span class="font-bold text-cyan-400 text-sm">۸۲,۴۰۰,۰۰۰ تومان</span>
+                      <span class="text-[9px] text-slate-400 mt-0.5 block">+۱۸٪ رشد نسبت به ماه قبل</span>
+                    </div>
+                    <div class="bg-[#242f3d]/70 p-2 rounded-xl">
+                      <span class="text-slate-400 block text-[10px]">👥 کل مشتریان</span>
+                      <span class="font-bold text-white">۱,۴۲۰ کاربر</span>
+                    </div>
+                    <div class="bg-[#242f3d]/70 p-2 rounded-xl">
+                      <span class="text-slate-400 block text-[10px]">🟢 سرویس‌های فعال</span>
+                      <span class="font-bold text-emerald-400">۸۹۵ اشتراک زنده</span>
+                    </div>
+                  </div>
+
+                  <!-- Server Nodes Health Strip -->
+                  <div class="bg-[#121922] p-2 rounded-xl border border-[#242f3d] flex items-center justify-between text-[11px]">
+                    <span class="text-slate-300 flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <span>وضعیت نودها: <b>۴ از ۴ پنل متصل</b></span>
+                    </span>
+                    <span class="text-[10px] text-emerald-400 font-mono">100% HEALTHY</span>
+                  </div>
+
+                  <!-- Admin Action Buttons -->
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <button onclick="simulateAction('مشاهده فیش‌ها')" class="bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 py-1.5 px-2 rounded-lg text-[11px] font-medium text-center border border-amber-500/30 flex items-center justify-center gap-1">
+                      <span>⏳ فیش‌های در انتظار (۳)</span>
+                    </button>
+                    <button onclick="togglePlanManagerModal()" class="bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-300 py-1.5 px-2 rounded-lg text-[11px] font-medium text-center border border-indigo-500/30 flex items-center justify-center gap-1">
+                      <span>📦 مدیریت پلن‌ها و قیمت‌ها</span>
+                    </button>
+                    <button onclick="toggleAdminManagerModal()" class="col-span-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 py-1.5 px-2 rounded-lg text-[11px] font-medium text-center border border-emerald-500/30 flex items-center justify-center gap-1">
+                      <span>👥 مدیران مجاز (آیدی عددی تلگرام)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Admin Access & Whitelist Card (Interactive) -->
+                <div id="admin-manager-card" class="bg-[#182533] p-3.5 rounded-2xl rounded-tr-none border border-emerald-500/30 shadow-sm max-w-[95%] space-y-2.5">
+                  <div class="flex items-center justify-between border-b border-[#242f3d] pb-2">
+                    <span class="font-bold text-white flex items-center gap-1.5">
+                      <span>🔐 لیست سفید مدیران مجاز (Whitelist)</span>
+                    </span>
+                    <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono border border-emerald-500/30">سخت‌گیرانه</span>
+                  </div>
+
+                  <p class="text-[10px] text-slate-400 leading-relaxed">
+                    فقط شناسه‌های عددی تلگرام زیر مجاز به ورود به پنل ادمین هستند. برای هر شخص دیگری، پنل باز نمی‌شود و دکمه آن مخفی است.
+                  </p>
+
+                  <!-- Whitelisted IDs List -->
+                  <div id="admin-whitelist-container" class="space-y-1.5 text-xs">
+                    <div class="bg-[#121922] p-2 rounded-xl border border-[#242f3d] flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="text-amber-400">👑</span>
+                        <div>
+                          <span class="font-mono text-white text-[11px] font-bold">123456789</span>
+                          <span class="text-[9px] text-slate-400 block">مدیر اصلی (ثبت شده در .env)</span>
+                        </div>
+                      </div>
+                      <span class="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">SuperAdmin</span>
+                    </div>
+
+                    <div class="bg-[#121922] p-2 rounded-xl border border-[#242f3d] flex items-center justify-between">
+                      <div class="flex items-center gap-2">
+                        <span class="text-blue-400">👤</span>
+                        <div>
+                          <span class="font-mono text-white text-[11px] font-bold">987654321</span>
+                          <span class="text-[9px] text-slate-400 block">مدیر مالی و پشتیبانی (.env)</span>
+                        </div>
+                      </div>
+                      <span class="text-[9px] bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded">Admin</span>
+                    </div>
+                  </div>
+
+                  <!-- Actions: Add Admin & Test Access Denied -->
+                  <div class="grid grid-cols-2 gap-1.5 pt-1">
+                    <button onclick="addAdminInteractive()" class="bg-emerald-600 hover:bg-emerald-500 text-white py-1.5 px-2 rounded-lg text-[10px] font-bold text-center transition flex items-center justify-center gap-1">
+                      <span>➕ افزودن آیدی عددی</span>
+                    </button>
+                    <button onclick="testUnauthorizedAccess()" class="bg-rose-600/30 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 py-1.5 px-2 rounded-lg text-[10px] font-medium text-center transition flex items-center justify-center gap-1">
+                      <span>🚫 تست ورود کاربر غریبه</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Plan Management Card (Interactive) -->
+                <div id="plan-manager-card" class="bg-[#182533] p-3.5 rounded-2xl rounded-tr-none border border-indigo-500/30 shadow-sm max-w-[95%] space-y-2.5">
+                  <div class="flex items-center justify-between border-b border-[#242f3d] pb-2">
+                    <span class="font-bold text-white flex items-center gap-1.5">
+                      <span>📦 مدیریت پلن‌ها و قیمت‌های فروش</span>
+                    </span>
+                    <span class="text-[10px] text-indigo-400 font-mono">ویرایش آنی</span>
+                  </div>
+                  
+                  <div class="space-y-2 text-xs">
+                    <!-- Plan 1 -->
+                    <div class="bg-[#121922] p-2.5 rounded-xl border border-[#242f3d] flex items-center justify-between">
+                      <div>
+                        <div class="flex items-center gap-1.5">
+                          <span id="p1-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                          <span class="font-bold text-white text-[11px]">پلن اقتصادی ۵۰ گیگابایت</span>
+                        </div>
+                        <span id="p1-price" class="text-[10px] text-cyan-400 block mt-0.5">قیمت: ۱۲۰,۰۰۰ تومان</span>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <button onclick="editPriceInteractive(1)" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-amber-300 px-2 py-1 rounded text-[10px]">✏️ قیمت</button>
+                        <button id="p1-toggle" onclick="togglePlanActiveInteractive(1)" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-slate-300 px-2 py-1 rounded text-[10px]">🔴 مخفی</button>
+                      </div>
+                    </div>
+
+                    <!-- Plan 2 -->
+                    <div class="bg-[#121922] p-2.5 rounded-xl border border-[#242f3d] flex items-center justify-between">
+                      <div>
+                        <div class="flex items-center gap-1.5">
+                          <span id="p2-dot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                          <span class="font-bold text-white text-[11px]">پلن استاندارد ۱۰۰ گیگابایت</span>
+                        </div>
+                        <span id="p2-price" class="text-[10px] text-cyan-400 block mt-0.5">قیمت: ۲۲۰,۰۰۰ تومان</span>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <button onclick="editPriceInteractive(2)" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-amber-300 px-2 py-1 rounded text-[10px]">✏️ قیمت</button>
+                        <button id="p2-toggle" onclick="togglePlanActiveInteractive(2)" class="bg-[#242f3d] hover:bg-[#2e3b4d] text-slate-300 px-2 py-1 rounded text-[10px]">🔴 مخفی</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Pending Card-to-Card Receipt Card -->
+                <div id="receipt-card" class="bg-[#182533] p-3.5 rounded-2xl rounded-tr-none border border-cyan-500/30 shadow-sm max-w-[95%] space-y-2.5">
+                  <div class="flex items-center justify-between border-b border-[#242f3d] pb-2">
+                    <span class="font-bold text-white flex items-center gap-1.5">
+                      <span>🧾 بررسی فیش کارت به کارت</span>
+                      <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[9px]">منتظر تایید</span>
+                    </span>
+                    <span class="text-[10px] text-slate-400 font-mono">#PAY-9821</span>
+                  </div>
+
+                  <!-- Receipt Meta -->
+                  <div class="space-y-1 text-[11px]">
+                    <div class="flex justify-between">
+                      <span class="text-slate-400">👤 خریدار:</span>
+                      <span class="font-bold text-white">علیرضا محمدی (@alireza_dev)</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-slate-400">📦 محصول:</span>
+                      <span class="text-slate-200">اشتراک ۳ ماهه ۱۰۰ گیگ (🇩🇪 آلمان)</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-slate-400">💳 مبلغ واریزی:</span>
+                      <span class="font-bold text-emerald-400 text-xs">۲۹۰,۰۰۰ تومان</span>
+                    </div>
+                  </div>
+
+                  <!-- Simulated Receipt Image Thumbnail -->
+                  <div class="bg-[#0f1722] p-2 rounded-xl border border-[#242f3d] flex items-center gap-3">
+                    <div class="w-12 h-12 rounded bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-500 shrink-0">
+                      <svg class="w-6 h-6 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div class="overflow-hidden flex-1 text-[10px] text-slate-400">
+                      <span class="text-slate-200 font-semibold block">تصویر فیش همراه بانک (بلو / ملت)</span>
+                      <span>پیگیری: ۹۲۸۴۷۱ | ارسالی ۱۲ دقیقه قبل</span>
+                    </div>
+                  </div>
+
+                  <!-- Admin Decision Buttons -->
+                  <div id="receipt-actions" class="grid grid-cols-2 gap-2 pt-1">
+                    <button onclick="approveReceipt()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-3 rounded-xl text-[11px] shadow-md shadow-emerald-900/30 transition flex items-center justify-center gap-1.5">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                      <span>✅ تایید و صدور آنی</span>
+                    </button>
+                    <button onclick="rejectReceipt()" class="bg-rose-600/80 hover:bg-rose-600 text-white font-bold py-2 px-3 rounded-xl text-[11px] transition flex items-center justify-center gap-1.5">
+                      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                      <span>❌ رد فیش</span>
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- TELEGRAM BOTTOM RESTART/KEYBOARD AREA -->
+            <div class="bg-[#17212b] border-t border-[#242f3d] p-2 space-y-1.5">
+              
+              <!-- Reply Keyboard Buttons (Standard Telegram Grid) -->
+              <div id="keyboard-user" class="grid grid-cols-2 gap-1.5 text-[11px]">
+                <button onclick="simulateAction('خرید سرویس')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  🛒 خرید سرویس
+                </button>
+                <button onclick="simulateAction('سرویس‌های من')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  📦 سرویس‌های من
+                </button>
+                <button onclick="simulateAction('کیف پول')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  💳 کیف پول (۸۵,۰۰۰ ت)
+                </button>
+                <button onclick="simulateAction('دعوت از دوستان')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  👥 دعوت از دوستان
+                </button>
+                <button onclick="simulateAction('پشتیبانی')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  🎧 پشتیبانی و تیکت
+                </button>
+                <button onclick="simulateAction('آموزش اتصال')" class="bg-[#242f3d] hover:bg-[#2c3848] text-slate-200 py-2 px-2 rounded-lg font-medium text-center shadow-sm">
+                  📚 راهنمای اتصال
+                </button>
+              </div>
+
+              <!-- Admin Mode Bottom Bar -->
+              <div id="keyboard-admin" class="hidden grid grid-cols-2 gap-1.5 text-[11px]">
+                <button onclick="simulateAction('آمار فروش')" class="bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 py-2 px-2 rounded-lg font-bold text-center">
+                  📊 آمار فروش و سود
+                </button>
+                <button onclick="simulateAction('فیش‌های معلق')" class="bg-amber-600/30 text-amber-300 border border-amber-500/30 py-2 px-2 rounded-lg font-bold text-center">
+                  ⏳ فیش‌های معلق (۳)
+                </button>
+                <button onclick="simulateAction('مدیریت سرورها')" class="bg-[#242f3d] text-slate-200 py-2 px-2 rounded-lg font-medium text-center">
+                  🖥 وضعیت سرورها
+                </button>
+                <button onclick="simulateAction('ارسال همگانی')" class="bg-[#242f3d] text-slate-200 py-2 px-2 rounded-lg font-medium text-center">
+                  📢 ارسال پیام همگانی
+                </button>
+              </div>
+
+              <!-- Chat Input Bar -->
+              <div class="flex items-center gap-2 pt-1 text-slate-400 text-xs">
+                <div class="flex-1 bg-[#242f3d] rounded-full px-3.5 py-1.5 text-slate-400 text-[11px]">
+                  یک پیام بنویسید...
+                </div>
+                <div class="w-7 h-7 rounded-full bg-indigo-600 flex items-center justify-center text-white">
+                  <svg class="w-3.5 h-3.5 rotate-180" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z"/></svg>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: Interactive Explanation & 3x-ui Panel Preview (5 cols) -->
+      <div class="lg:col-span-5 space-y-4">
+        
+        <!-- Explanation Card -->
+        <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm space-y-3">
+          <h2 id="info-title" class="font-bold text-base flex items-center gap-2">
+            <span class="text-indigo-500">📱</span>
+            <span>مشخصات پنل کاربری تلگرام (مشتری)</span>
+          </h2>
+          <p id="info-desc" class="text-xs text-[var(--muted-foreground)] leading-relaxed">
+            مشتریان بدون نیاز به نصب هیچ نرم‌افزار اضافی، تمام نیازهای خود را از طریق ربات تلگرام انجام می‌دهند. این شامل خرید آنی، صدور QR Code، استعلام حجم آنلاین از سرور و دریافت لینک‌های سابسکرایب است.
+          </p>
+
+          <!-- Feature Pills -->
+          <div id="feature-list" class="space-y-2 pt-1 text-xs">
+            <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]">
+              <span class="text-emerald-500">✓</span>
+              <span>تولید خودکار کانفیگ‌های <b>VLESS Reality</b> و <b>Trojan</b></span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]">
+              <span class="text-emerald-500">✓</span>
+              <span>نمایش زنده مصرف حجم با پروگرس‌بار هوشمند</span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]">
+              <span class="text-emerald-500">✓</span>
+              <span>درگاه آنلاین زرین‌پال + کارت به کارت خودکار</span>
+            </div>
+            <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]">
+              <span class="text-emerald-500">✓</span>
+              <span>سیستم زیرمجموعه‌گیری و پورسانت کیف پول</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3X-UI WEB PANEL MOCKUP (Visible in all or specific view) -->
+        <div class="bg-[#1e1e2d] border border-slate-700/60 rounded-2xl p-4 shadow-lg text-slate-200 space-y-3">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <div class="flex items-center gap-2">
+              <div class="w-3 h-3 rounded-full bg-rose-500"></div>
+              <div class="w-3 h-3 rounded-full bg-amber-500"></div>
+              <div class="w-3 h-3 rounded-full bg-emerald-500"></div>
+              <span class="text-xs font-mono font-bold text-slate-300 mr-2">3x-ui v3.11 Admin Dashboard</span>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 font-mono">Panel #1 (DE)</span>
+          </div>
+
+          <!-- Server Resources Bars -->
+          <div class="grid grid-cols-3 gap-2 text-[10px] font-mono">
+            <div class="bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+              <span class="text-slate-400 block">CPU LOAD</span>
+              <span class="text-emerald-400 font-bold text-xs">14.2%</span>
+            </div>
+            <div class="bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+              <span class="text-slate-400 block">RAM USED</span>
+              <span class="text-cyan-400 font-bold text-xs">2.4 / 8 GB</span>
+            </div>
+            <div class="bg-slate-800/80 p-2 rounded-lg border border-slate-700/50">
+              <span class="text-slate-400 block">CLIENTS</span>
+              <span class="text-purple-400 font-bold text-xs">420 Online</span>
+            </div>
+          </div>
+
+          <!-- Inbound List Sample -->
+          <div class="space-y-1.5 text-xs">
+            <span class="text-[10px] text-slate-400 block font-semibold">اینباندهای متصل و تحت مدیریت ربات:</span>
+            
+            <div class="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <div>
+                  <span class="font-bold text-white text-[11px] block">Inbound 1 — VLESS Reality (TCP)</span>
+                  <span class="text-[10px] text-slate-400 font-mono">Port: 443 | SNI: yahoo.com</span>
+                </div>
+              </div>
+              <span class="text-[10px] font-mono text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/40">1.82 TB</span>
+            </div>
+
+            <div class="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700/50 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                <div>
+                  <span class="font-bold text-white text-[11px] block">Inbound 2 — Trojan TLS (gRPC)</span>
+                  <span class="text-[10px] text-slate-400 font-mono">Port: 8443 | TLS Direct</span>
+                </div>
+              </div>
+              <span class="text-[10px] font-mono text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded border border-emerald-800/40">940 GB</span>
+            </div>
+          </div>
+
+          <div class="pt-1 flex justify-between items-center text-[10px] text-slate-400">
+            <span>همگام‌سازی ترافیک: هر ۵ دقیقه با Celery</span>
+            <span class="text-emerald-400 font-semibold">● متصل و پایدار</span>
+          </div>
+        </div>
+
+        <!-- Toast Feedback Area -->
+        <div id="toast" class="hidden bg-emerald-600 text-white text-xs px-4 py-2.5 rounded-xl shadow-lg flex items-center justify-between transition-all">
+          <span id="toast-text">عملیات با موفقیت انجام شد!</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // Tab Switching Logic
+    function switchView(mode) {
+      const tabUser = document.getElementById('tab-user');
+      const tabAdmin = document.getElementById('tab-admin');
+      const tabXui = document.getElementById('tab-xui');
+      const contentUser = document.getElementById('content-user');
+      const contentAdmin = document.getElementById('content-admin');
+      const keyboardUser = document.getElementById('keyboard-user');
+      const keyboardAdmin = document.getElementById('keyboard-admin');
+      const appbarTitle = document.getElementById('appbar-title');
+      const appbarStatus = document.getElementById('appbar-status');
+      const infoTitle = document.getElementById('info-title');
+      const infoDesc = document.getElementById('info-desc');
+      const featureList = document.getElementById('feature-list');
+
+      // Reset Styles
+      [tabUser, tabAdmin, tabXui].forEach(t => {
+        t.className = "flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]";
+      });
+
+      if (mode === 'user') {
+        tabUser.className = "flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white shadow-sm";
+        contentUser.classList.remove('hidden');
+        contentAdmin.classList.add('hidden');
+        keyboardUser.classList.remove('hidden');
+        keyboardAdmin.classList.add('hidden');
+        appbarTitle.innerHTML = '<span>VPN Private</span><svg class="w-3.5 h-3.5 text-blue-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>';
+        appbarStatus.innerText = 'bot';
+        infoTitle.innerHTML = '<span class="text-indigo-500">📱</span><span>مشخصات پنل کاربری تلگرام (مشتری)</span>';
+        infoDesc.innerText = 'مشتریان بدون نیاز به نصب هیچ نرم‌افزار اضافی، تمام نیازهای خود را از طریق ربات تلگرام انجام می‌دهند. این شامل خرید آنی، صدور QR Code، استعلام حجم آنلاین از سرور و دریافت لینک‌های سابسکرایب است.';
+        featureList.innerHTML = `
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-emerald-500">✓</span><span>تولید خودکار کانفیگ‌های <b>VLESS Reality</b> و <b>Trojan</b></span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-emerald-500">✓</span><span>نمایش زنده مصرف حجم با پروگرس‌بار هوشمند</span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-emerald-500">✓</span><span>درگاه آنلاین زرین‌پال + کارت به کارت خودکار</span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-emerald-500">✓</span><span>سیستم زیرمجموعه‌گیری و پورسانت کیف پول</span></div>
+        `;
+      } else if (mode === 'admin') {
+        tabAdmin.className = "flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-amber-600 text-white shadow-sm";
+        contentUser.classList.add('hidden');
+        contentAdmin.classList.remove('hidden');
+        keyboardUser.classList.add('hidden');
+        keyboardAdmin.classList.remove('hidden');
+        appbarTitle.innerHTML = '<span>VPN Private Admin</span><span class="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">Admin</span>';
+        appbarStatus.innerText = 'پنل مدیریت عملیات';
+        infoTitle.innerHTML = '<span class="text-amber-500">🛡</span><span>داشبورد ادمین و تایید فیش‌ها در تلگرام</span>';
+        infoDesc.innerText = 'مدیران می‌توانند تمامی وضعیت‌های مالی، درآمد روزانه/ماهانه، فیش‌های واریزی کارت‌به‌کارت و سلامت سرورها را مستقیماً از داخل بات کنترل کرده و با یک کلیک اکانت صادر نمایند.';
+        featureList.innerHTML = `
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-amber-500">✓</span><span>صف انتظار فیش‌های کارت‌به‌کارت با پیش‌نمایش تصویر رسید</span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-amber-500">✓</span><span>دکمه تایید فوری: ثبت سند دوبل + صدور آنی اکانت در 3x-ui</span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-amber-500">✓</span><span>آمار زنده مالی: تفکیک درآمد امروز و سود ماهانه</span></div>
+          <div class="flex items-center gap-2 text-slate-300 bg-[var(--background)] p-2 rounded-xl border border-[var(--border)]"><span class="text-amber-500">✓</span><span>مانیتورینگ سلامت سرورها و وضعیت آنلاین بودن پنل‌ها</span></div>
+        `;
+      } else if (mode === 'xui') {
+        tabXui.className = "flex-1 md:flex-initial px-4 py-2 rounded-lg text-xs md:text-sm font-semibold transition-all flex items-center justify-center gap-2 bg-purple-600 text-white shadow-sm";
+        showToast("نمای داشبورد وب 3x-ui در ستون کناری فعال شد.");
+      }
+    }
+
+    // Copy Feedback
+    function copyLink() {
+      showToast("لینک اختصاصی کانفیگ در حافظه کپی شد!");
+    }
+
+    // Action Simulator
+    function simulateAction(name) {
+      showToast(`دستور «${name}» ارسال شد و توسط بات پردازش گردید.`);
+    }
+
+    // Approve Receipt
+    function approveReceipt() {
+      const actions = document.getElementById('receipt-actions');
+      actions.innerHTML = `
+        <div class="col-span-2 bg-emerald-500/20 text-emerald-400 p-2.5 rounded-xl border border-emerald-500/30 text-center font-bold text-xs flex items-center justify-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span>تایید شد! سند حسابداری ثبت و سرویس به صورت خودکار صادر شد.</span>
+        </div>
+      `;
+      showToast("پرداخت تایید شد و پیام حاوی کانفیگ به کاربر ارسال گردید.");
+    }
+
+    // Reject Receipt
+    function rejectReceipt() {
+      const actions = document.getElementById('receipt-actions');
+      actions.innerHTML = `
+        <div class="col-span-2 bg-rose-500/20 text-rose-400 p-2.5 rounded-xl border border-rose-500/30 text-center font-bold text-xs">
+          <span>فیش رد شد و دلیل رد به کاربر ارسال گردید.</span>
+        </div>
+      `;
+      showToast("فیش نامعتبر تشخیص داده شد و رد گردید.");
+    }
+
+    // Toggle Plan Management Card
+    function togglePlanManagerModal() {
+      const card = document.getElementById('plan-manager-card');
+      card.scrollIntoView({ behavior: 'smooth' });
+      showToast("بخش مدیریت پلن‌ها باز شد.");
+    }
+
+    // Edit Price Simulator
+    function editPriceInteractive(planId) {
+      const newPrice = prompt("لطفاً قیمت جدید را به تومان وارد نمایید:", planId === 1 ? "140000" : "260000");
+      if (newPrice && !isNaN(newPrice)) {
+        const el = document.getElementById(`p${planId}-price`);
+        el.innerText = `قیمت: ${parseInt(newPrice).toLocaleString('fa-IR')} تومان`;
+        showToast(`قیمت پلن با موفقیت به ${parseInt(newPrice).toLocaleString('fa-IR')} تومان تغییر یافت.`);
+      }
+    }
+
+    // Toggle Plan Active
+    function togglePlanActiveInteractive(planId) {
+      const dot = document.getElementById(`p${planId}-dot`);
+      const btn = document.getElementById(`p${planId}-toggle`);
+      const isCurrentlyActive = dot.classList.contains('bg-emerald-400');
+      
+      if (isCurrentlyActive) {
+        dot.className = "w-2 h-2 rounded-full bg-rose-500";
+        btn.innerText = "🟢 فعال";
+        btn.className = "bg-[#242f3d] hover:bg-[#2e3b4d] text-emerald-400 px-2 py-1 rounded text-[10px]";
+        showToast("پلن غیرفعال شد و از ربات تلگرام مخفی گردید.");
+      } else {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400";
+        btn.innerText = "🔴 مخفی";
+        btn.className = "bg-[#242f3d] hover:bg-[#2e3b4d] text-slate-300 px-2 py-1 rounded text-[10px]";
+        showToast("پلن فعال شد و در منوی خرید مشتریان قرار گرفت.");
+      }
+    }
+
+    // Toggle Admin Management Card
+    function toggleAdminManagerModal() {
+      const card = document.getElementById('admin-manager-card');
+      card.scrollIntoView({ behavior: 'smooth' });
+      showToast("بخش مدیریت دسترسی و ادمین‌های سیستم باز شد.");
+    }
+
+    // Add Admin ID Interactive
+    function addAdminInteractive() {
+      const newAdminId = prompt("لطفاً شناسه عددی تلگرام (Telegram User ID) ادمین جدید را وارد نمایید (مثال: 582910444):", "582910444");
+      if (newAdminId && !isNaN(newAdminId) && parseInt(newAdminId) > 0) {
+        const container = document.getElementById('admin-whitelist-container');
+        const newCard = document.createElement('div');
+        newCard.className = "bg-[#121922] p-2 rounded-xl border border-emerald-500/50 flex items-center justify-between animate-pulse";
+        newCard.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="text-emerald-400">✨</span>
+            <div>
+              <span class="font-mono text-white text-[11px] font-bold">${newAdminId}</span>
+              <span class="text-[9px] text-emerald-400 block">ادمین جدید (ارتقا یافته از بات)</span>
+            </div>
+          </div>
+          <span class="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded">Admin</span>
+        `;
+        container.appendChild(newCard);
+        setTimeout(() => newCard.classList.remove('animate-pulse'), 1500);
+        showToast(`کاربر با شناسه ${newAdminId} به عنوان ادمین اضافه شد و پنل برای او باز شد!`);
+      }
+    }
+
+    // Test Unauthorized Access
+    function testUnauthorizedAccess() {
+      alert("⛔️ پاسخ بات به کاربران متفرقه:\n\n«شما به این بخش دسترسی ندارید.»\n\n(دکمه پنل ادمین برای این افراد مخفی بوده و دستور /admin نیز مسدود است)");
+      showToast("تست امنیتی: دسترسی کاربر غیرمجاز مسدود گردید.");
+    }
+
+    // Show Toast
+    function showToast(text) {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      toastText.innerText = text;
+      toast.classList.remove('hidden');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3500);
+    }
+  </script>
+</body>
+</html>

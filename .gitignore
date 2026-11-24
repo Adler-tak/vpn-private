@@ -1,0 +1,65 @@
+# =====================================
+# Git Ignore - VPN Private Platform
+# =====================================
+
+# Environment variables & Sensitive Credentials
+.env
+.env.*
+!.env.example
+
+# SSL / TLS Certificates & Private Keys
+*.pem
+*.key
+*.crt
+*.cer
+*.pfx
+*.p12
+certs/
+
+# Local databases, dumps & backups
+*.db
+*.sqlite
+*.sqlite3
+vpn_private.db
+*.sql
+*.sql.gz
+backups/
+data/system_settings.json
+data/backups/
+data/x-ui/
+data/*.tmp
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Logs & temp files
+*.log
+logs/
+*.pid
+*.seed
+
+# Deployment archives
+*.tar
+*.tar.gz
+vpn_deploy*.tar.gz
+
+# Editor & OS settings
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

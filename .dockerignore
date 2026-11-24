@@ -1,0 +1,51 @@
+# Environment files
+.env
+.env.*
+
+# SQLite, databases & database backups
+vpn_private.db*
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.sql
+*.sql.gz
+*.bak
+*.backup
+backups/
+data/backups/
+data/*.db
+data/xui_db/
+data/x-ui/
+
+# Version control
+.git
+.gitignore
+
+# Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Documentation & audit
+AUDIT/
+docs/
+
+# Scripts (clean initialization and seeding scripts needed in container)
+scripts/*.py
+!scripts/seed_data.py
+!scripts/init_db.py
+scripts/__pycache__/
+
+# Deployment archives & temporary files
+*.tar.gz
+.vscode/
+.idea/

@@ -1,0 +1,72 @@
+services:
+  # -------------------------------------------------------------------
+  # 1. FastAPI Webhook & Admin API Server
+  # -------------------------------------------------------------------
+  vpn-api:
+    image: adprivate/vpn-private:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpn-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./vpn_private.db:/app/vpn_private.db
+      - ./.env:/app/.env
+      - ./app:/app/app
+      - ./data:/app/data
+      - /etc/x-ui:/etc/x-ui
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
+    networks:
+      - default
+      - npm_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # -------------------------------------------------------------------
+  # 2. Telegram Bot Service
+  # -------------------------------------------------------------------
+  vpn-bot:
+    image: adprivate/vpn-private:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpn-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "-m", "app.bot.main"]
+    volumes:
+      - ./vpn_private.db:/app/vpn_private.db
+      - ./.env:/app/.env
+      - ./app:/app/app
+      - ./data:/app/data
+      - /etc/x-ui:/etc/x-ui
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - default
+      - npm_net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - vpn-api
+
+networks:
+  default:
+    driver: bridge
+  # External network for integration with Nginx Proxy Manager (NPM).
+  # Automated installer (install.sh) and vpn-private CLI auto-create this:
+  #   docker network create nginx-proxy-manager_default 2>/dev/null || true
+  npm_net:
+    external: true
+    name: nginx-proxy-manager_default

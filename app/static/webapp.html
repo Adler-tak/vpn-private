@@ -1,0 +1,1371 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>VPN Private | اپلیکیشن مدیریت اشتراک</title>
+  
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  
+  <!-- Google Fonts: Vazirmatn -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Vazirmatn', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    body {
+      font-family: 'Vazirmatn', system-ui, sans-serif;
+      background-color: #0b0f19;
+      color: #f1f5f9;
+      padding-bottom: 5rem;
+    }
+    .glass-card {
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-nav {
+      background: rgba(11, 15, 25, 0.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .pulse-glow {
+      box-shadow: 0 0 20px -3px rgba(99, 102, 241, 0.4);
+    }
+    .custom-scroll::-webkit-scrollbar {
+      display: none;
+    }
+    .custom-scroll {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- ============================================== -->
+  <!-- TOP APP BAR                                    -->
+  <!-- ============================================== -->
+  <header class="sticky top-0 z-40 glass-nav px-4 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 flex items-center justify-center text-lg shadow-md shadow-indigo-500/20 border border-indigo-400/20">
+        🛡️
+      </div>
+      <div>
+        <div class="flex items-center gap-1.5">
+          <span class="font-black text-sm text-white">VPN Private</span>
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        </div>
+        <div id="user-greeting" class="text-[11px] text-slate-400 truncate max-w-[140px]">در حال بارگذاری...</div>
+      </div>
+    </div>
+
+    <!-- Wallet Balance Badge -->
+    <div onclick="switchTab('tab-wallet')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 active:scale-95 transition cursor-pointer shadow-sm">
+      <i class="bi bi-wallet2 text-amber-400 text-xs"></i>
+      <span id="header-wallet-balance" class="text-xs font-bold text-amber-300 font-mono">۰ تومان</span>
+    </div>
+  </header>
+
+  <!-- ============================================== -->
+  <!-- MAIN CONTENT CONTAINER                         -->
+  <!-- ============================================== -->
+  <main class="p-4 space-y-4 max-w-md mx-auto">
+
+    <!-- Loading State Skeleton -->
+    <div id="loading-state" class="py-16 text-center space-y-3">
+      <div class="w-12 h-12 border-3 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin mx-auto"></div>
+      <p class="text-xs text-slate-400">در حال دریافت وضعیت اشتراک شما...</p>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB 1: MY SERVICES (DEFAULT ACTIVE)            -->
+    <!-- ============================================== -->
+    <div id="tab-services" class="hidden space-y-4">
+      
+      <!-- Subscription Selector (if multiple) -->
+      <div id="sub-selector-container" class="hidden">
+        <label class="block text-[11px] text-slate-400 font-semibold mb-1">انتخاب سرویس شما:</label>
+        <select id="sub-select-dropdown" onchange="onSubDropdownChange(this.value)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+        </select>
+      </div>
+
+      <!-- No Subscription Active Banner -->
+      <div id="no-sub-banner" class="hidden p-6 rounded-3xl glass-card text-center space-y-3 border border-indigo-500/20">
+        <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center text-3xl mx-auto">
+          📡
+        </div>
+        <h3 class="font-bold text-sm text-white">اشتراک فعالی یافت نشد!</h3>
+        <p class="text-xs text-slate-400 leading-relaxed">
+          شما در حال حاضر سرویس فعالی ندارید. می‌توانید با انتخاب یکی از بسته‌های پرسرعت، اشتراک خود را بلافاصله فعال فرمایید.
+        </p>
+        <button onclick="switchTab('tab-plans')" class="w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition flex items-center justify-center gap-2">
+          <i class="bi bi-cart-plus"></i>
+          <span>مشاهده و خرید بسته‌ها</span>
+        </button>
+      </div>
+
+      <!-- Active Service Main Card -->
+      <div id="active-sub-card" class="hidden rounded-3xl glass-card p-5 space-y-4 border border-indigo-500/30 relative overflow-hidden pulse-glow">
+        <div class="absolute -top-16 -right-16 w-32 h-32 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none"></div>
+        
+        <!-- Header: Protocol Badge & Expiry Countdown -->
+        <div class="flex items-center justify-between relative z-10">
+          <div class="flex items-center gap-2">
+            <span id="sub-protocol-badge" class="px-2.5 py-0.5 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 font-mono text-[11px] font-bold">VLESS</span>
+            <span id="sub-status-badge" class="px-2 py-0.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold">● فعال</span>
+          </div>
+          <div class="flex items-center gap-1.5 text-xs bg-slate-900/90 border border-slate-800 px-2.5 py-1 rounded-xl text-slate-300">
+            <i class="bi bi-clock-history text-amber-400"></i>
+            <span id="sub-days-left" class="font-bold font-mono text-amber-300">۰ روز</span>
+            <span class="text-[10px] text-slate-400">مانده</span>
+          </div>
+        </div>
+
+        <!-- Account Identifier -->
+        <div class="relative z-10">
+          <div class="text-[11px] text-slate-400">شناسه اکانت:</div>
+          <div id="sub-email-text" class="text-xs font-mono font-bold text-white truncate mt-0.5" dir="ltr">user@vpn.private</div>
+        </div>
+
+        <!-- Visual Progress Gauge for Traffic Volume -->
+        <div class="space-y-1.5 relative z-10">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-400">حجم مصرفی:</span>
+            <span class="font-mono text-slate-200">
+              <span id="sub-used-gb" class="font-bold text-white">۰</span> / 
+              <span id="sub-limit-gb">۰</span> GB
+            </span>
+          </div>
+          <!-- Progress bar -->
+          <div class="w-full h-3 bg-slate-900/90 rounded-full overflow-hidden p-0.5 border border-slate-800">
+            <div id="sub-progress-bar" class="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500 transition-all duration-700" style="width: 0%"></div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+            <span>درصد مصرف: <b id="sub-usage-pct" class="font-mono text-indigo-300">۰٪</b></span>
+            <span>باقیمانده: <b id="sub-remaining-gb" class="font-mono text-emerald-400">۰ GB</b></span>
+          </div>
+        </div>
+
+        <!-- Warning Callout if Quota > 80% -->
+        <div id="quota-warning-banner" class="hidden p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-base">⚠️</span>
+            <span id="quota-warning-text">بیش از ۸۰٪ حجم شما مصرف شده است!</span>
+          </div>
+          <button onclick="openRenewModal()" class="px-2.5 py-1 rounded-xl bg-amber-500 text-slate-950 font-bold text-[11px] hover:bg-amber-400 transition whitespace-nowrap">
+            تمدید فوری
+          </button>
+        </div>
+
+        <!-- Primary Action Buttons -->
+        <div class="grid grid-cols-2 gap-2 pt-1 relative z-10">
+          <button onclick="copySubUrl()" id="btn-copy-sub" class="py-2.5 px-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/30 active:scale-95">
+            <i class="bi bi-clipboard-check text-sm"></i>
+            <span>کپی لینک اتصال</span>
+          </button>
+          <button onclick="openQrModal()" class="py-2.5 px-3 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
+            <i class="bi bi-qr-code text-sm text-cyan-400"></i>
+            <span>اسکن بارکد QR</span>
+          </button>
+        </div>
+
+        <!-- Secondary Action: Renew / Upgrade Button -->
+        <button onclick="openRenewModal()" class="w-full py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 active:scale-95">
+          <i class="bi bi-arrow-repeat text-base"></i>
+          <span>تمدید یا تغییر و ارتقای پلن</span>
+        </button>
+
+        <!-- Auto-Renew Toggle Bar -->
+        <div class="p-3 rounded-2xl bg-slate-900/80 border border-slate-800 flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🔄</span>
+            <div>
+              <div class="text-xs font-bold text-white">تمدید خودکار از کیف پول</div>
+              <div class="text-[10px] text-slate-400">تمدید خودکار سرویس قبل از اتمام حجم یا زمان</div>
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="toggle-sub-autorenew" onchange="toggleCurrentSubAutoRenew()" class="sr-only peer">
+            <div class="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+          </label>
+        </div>
+
+        <!-- Emergency Grace Button (1 Day / 1 GB) -->
+        <button onclick="triggerEmergencyGrace()" class="w-full py-2 px-3 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
+          <span>🆘</span>
+          <span>اتصال اضطراری ۲۴ ساعته (۱ گیگابایت امانی)</span>
+        </button>
+      </div>
+
+      <!-- Quick Software Import Cards -->
+      <div class="rounded-3xl glass-card p-4 space-y-3 border border-slate-800">
+        <div class="flex items-center justify-between">
+          <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+            <i class="bi bi-phone text-indigo-400"></i>
+            <span>اتصال مستقیم به نرم‌افزارها:</span>
+          </h4>
+          <span class="text-[10px] text-slate-400">با ۱ کلیک</span>
+        </div>
+        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+          <a id="btn-import-v2rayng" href="#" class="p-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 transition active:scale-95 flex flex-col items-center gap-1">
+            <span class="text-lg">🤖</span>
+            <span class="font-bold text-slate-200 text-[11px]">v2rayNG</span>
+            <span class="text-[9px] text-emerald-400">اندروید</span>
+          </a>
+          <a id="btn-import-streisand" href="#" class="p-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 transition active:scale-95 flex flex-col items-center gap-1">
+            <span class="text-lg">🍏</span>
+            <span class="font-bold text-slate-200 text-[11px]">Streisand</span>
+            <span class="text-[9px] text-sky-400">آیفون</span>
+          </a>
+          <a id="btn-import-hiddify" href="#" class="p-2.5 rounded-2xl bg-slate-900/90 border border-slate-800 hover:border-indigo-500/40 transition active:scale-95 flex flex-col items-center gap-1">
+            <span class="text-lg">🚀</span>
+            <span class="font-bold text-slate-200 text-[11px]">Hiddify</span>
+            <span class="text-[9px] text-purple-400">همه سیستم‌ها</span>
+          </a>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB 2: PLANS & PACKAGES (RENEW / UPGRADE)       -->
+    <!-- ============================================== -->
+    <div id="tab-plans" class="hidden space-y-3">
+      <div class="flex items-center justify-between pb-1">
+        <div>
+          <h3 class="font-black text-sm text-white">بسته‌ها و تعرفه‌های اینترنت</h3>
+          <p class="text-[11px] text-slate-400">جهت تمدید، ارتقا یا خرید اکانت جدید</p>
+        </div>
+        <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">ترافیک بین‌الملل</span>
+      </div>
+
+      <!-- Flash Sale Countdown Banner -->
+      <div id="flash-sale-banner" class="hidden rounded-3xl p-4 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 border border-amber-500/40 shadow-xl shadow-amber-500/10 space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl animate-pulse">⚡️</span>
+            <div>
+              <h4 id="flash-sale-title" class="font-bold text-xs text-amber-300">تخفیف ویژه صاعقه‌ای فعال است!</h4>
+              <p id="flash-sale-subtitle" class="text-[10px] text-slate-300">۳۰٪ تخفیف روی تمامی پلن‌ها</p>
+            </div>
+          </div>
+          <div class="text-center bg-slate-950/80 px-2.5 py-1.5 rounded-xl border border-amber-500/30">
+            <span class="text-[9px] text-slate-400 block">مهلت باقیمانده:</span>
+            <span id="flash-sale-timer" class="font-mono text-xs font-bold text-amber-400">00:00:00</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="plans-container" class="space-y-2.5">
+        <!-- Injected dynamically by JS -->
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB 3: WALLET                                  -->
+    <!-- ============================================== -->
+    <div id="tab-wallet" class="hidden space-y-4">
+      <div class="rounded-3xl glass-card p-6 text-center space-y-3 border border-amber-500/20 relative overflow-hidden">
+        <div class="w-14 h-14 rounded-2xl bg-amber-500/15 text-amber-400 flex items-center justify-center text-2xl mx-auto shadow-inner">
+          💰
+        </div>
+        <div>
+          <div class="text-xs text-slate-400">موجودی کیف پول شما:</div>
+          <div id="wallet-balance-big" class="text-2xl font-black text-white font-mono mt-1">۰ تومان</div>
+        </div>
+        <p class="text-[11px] text-slate-400 leading-relaxed">
+          با شارژ کیف پول می‌توانید بدون معطلی و در کسری از ثانیه اشتراک‌های خود را تمدید کرده یا پلن‌های جدید خریداری نمایید.
+        </p>
+        <button onclick="openBotWalletTopup()" class="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/25 transition flex items-center justify-center gap-2 active:scale-95">
+          <i class="bi bi-plus-circle text-base"></i>
+          <span>شارژ موجودی در ربات تلگرام</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB: LUCKY WHEEL                               -->
+    <!-- ============================================== -->
+    <div id="tab-wheel" class="hidden space-y-4">
+      <div class="rounded-3xl glass-card p-5 text-center space-y-4 border border-amber-500/20 relative overflow-hidden">
+        <div class="space-y-1">
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-[11px] font-bold text-amber-300">
+            <span>🎡 گردونه شانس و جوایز روزانه</span>
+          </div>
+          <h3 class="text-sm font-black text-white">شانس خودت رو امروز امتحان کن!</h3>
+          <p class="text-[11px] text-slate-400">برنده ترافیک هدیه، شارژ کیف پول و کدهای تخفیف ویژه شوید</p>
+        </div>
+
+        <!-- Wheel Canvas Container -->
+        <div class="relative w-64 h-64 mx-auto my-2 flex items-center justify-center">
+          <!-- Top pointer arrow -->
+          <div class="absolute -top-3 left-1/2 -translate-x-1/2 z-20 text-3xl filter drop-shadow-[0_2px_8px_rgba(245,158,11,0.6)]">
+            🔻
+          </div>
+          <canvas id="lucky-wheel-canvas" width="256" height="256" class="rounded-full shadow-2xl border-4 border-slate-800 transition-transform duration-75"></canvas>
+          <!-- Center Pin -->
+          <div class="absolute inset-0 m-auto w-10 h-10 rounded-full bg-slate-900 border-2 border-amber-400 shadow-lg flex items-center justify-center text-xs pointer-events-none z-10">
+            🎯
+          </div>
+        </div>
+
+        <!-- Cooldown Box (Visible when already spun today) -->
+        <div id="wheel-cooldown-box" class="hidden p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-1.5">
+          <div class="text-xs text-slate-300 flex items-center justify-center gap-1.5">
+            <span>⏳</span>
+            <span>شما شانس امروز خود را استفاده کرده‌اید!</span>
+          </div>
+          <div class="text-[11px] text-slate-400">زمان باقیمانده تا شانس بعدی:</div>
+          <div id="wheel-timer-text" class="text-base font-black text-amber-400 font-mono tracking-wider">--:--:--</div>
+        </div>
+
+        <!-- Spin Action Button -->
+        <button id="btn-spin-wheel" onclick="spinWebAppWheel()" class="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 text-slate-950 font-black text-xs shadow-xl shadow-amber-500/25 transition flex items-center justify-center gap-2 active:scale-95">
+          <span class="text-base">🎲</span>
+          <span>چرخاندن گردونه شانس</span>
+        </button>
+
+        <!-- Prize Result Alert -->
+        <div id="wheel-result-alert" class="hidden p-3.5 rounded-2xl text-xs font-bold space-y-1"></div>
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB: GIFT CARD                                 -->
+    <!-- ============================================== -->
+    <div id="tab-gift" class="hidden space-y-4">
+      <!-- Section 1: Purchase Gift Card -->
+      <div class="rounded-3xl glass-card p-5 space-y-3.5 border border-pink-500/20">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+          <div>
+            <h3 class="text-sm font-black text-white flex items-center gap-1.5">
+              <span>🎁</span>
+              <span>خرید کارت هدیه اختصاصی برای دوستان</span>
+            </h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">یک لینک اختصاصی همراه با پیام تبریک صادر و فوروارد کنید</p>
+          </div>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/10 text-pink-400 border border-pink-500/20 font-bold">هدیه فوری</span>
+        </div>
+
+        <div class="space-y-2.5">
+          <div>
+            <label class="block text-[11px] font-bold text-slate-300 mb-1">انتخاب بسته هدیه:</label>
+            <select id="gift-package-select" class="w-full p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-pink-500">
+              <option value="">در حال بارگذاری بسته‌ها...</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-slate-300 mb-1">نام شما (فرستنده هدیه):</label>
+            <input type="text" id="gift-sender-input" placeholder="مثال: علی یا یک دوست عزیز" class="w-full p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500">
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-bold text-slate-300 mb-1">متن یادداشت و پیام هدیه:</label>
+            <textarea id="gift-note-input" rows="2" placeholder="تولدت مبارک رفیق، اینم اینترنت پرسرعت و بدون قطعی برای تو 🎁" class="w-full p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-pink-500"></textarea>
+          </div>
+
+          <button id="btn-create-gift" onclick="submitCreateGiftCard()" class="w-full py-3 rounded-2xl bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 hover:from-pink-500 text-white font-bold text-xs shadow-lg shadow-pink-600/25 transition flex items-center justify-center gap-2 active:scale-95">
+            <i class="bi bi-gift-fill text-sm"></i>
+            <span>خرید و صدور کارت هدیه (از کیف پول)</span>
+          </button>
+        </div>
+
+        <!-- Generated Gift Card Result Card -->
+        <div id="gift-card-result-box" class="hidden p-4 rounded-2xl bg-slate-900/90 border border-pink-500/30 space-y-3">
+          <div class="flex items-center justify-between text-xs font-bold text-emerald-400">
+            <span>🎉 کارت هدیه با موفقیت صادر شد!</span>
+            <span id="gift-card-code-badge" class="font-mono text-purple-300 bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/20"></span>
+          </div>
+          <div id="gift-card-preview-text" class="text-[11px] text-slate-300 whitespace-pre-line bg-slate-950 p-2.5 rounded-xl border border-slate-800 font-mono"></div>
+          
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="copyGiftLink()" id="btn-copy-gift" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] transition flex items-center justify-center gap-1.5 active:scale-95">
+              <i class="bi bi-clipboard text-xs"></i>
+              <span>کپی لینک هدیه</span>
+            </button>
+            <a id="btn-share-gift-tg" href="#" target="_blank" class="py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 text-white font-bold text-[11px] transition flex items-center justify-center gap-1.5 active:scale-95 shadow-md">
+              <i class="bi bi-telegram text-xs"></i>
+              <span>ارسال در تلگرام</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Redeem Gift Card or Voucher -->
+      <div class="rounded-3xl glass-card p-5 space-y-3 border border-slate-800">
+        <h4 class="text-xs font-bold text-white flex items-center gap-1.5">
+          <span>🎟️</span>
+          <span>فعال‌سازی کارت هدیه یا کد ووچر</span>
+        </h4>
+        <p class="text-[11px] text-slate-400">اگر کد کارت هدیه یا ووچر دارید، در این بخش وارد کنید:</p>
+
+        <div class="flex gap-2">
+          <input type="text" id="redeem-code-input" placeholder="GIFT-XXXX-XXXX یا VPN-XXXX" class="flex-1 p-2.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 font-mono uppercase focus:outline-none focus:border-indigo-500">
+          <button onclick="submitRedeemGiftCard()" id="btn-redeem-gift" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition active:scale-95">
+            فعال‌سازی
+          </button>
+        </div>
+        <div id="redeem-result-alert" class="hidden text-xs p-3 rounded-xl"></div>
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- TAB 4: TUTORIALS & GUIDES                      -->
+    <!-- ============================================== -->
+    <div id="tab-help" class="hidden space-y-3 text-xs">
+      <div class="rounded-2xl glass-card p-4 space-y-2">
+        <h4 class="font-bold text-white flex items-center gap-2">
+          <span>🤖</span>
+          <span>راهنمای اتصال در گوشی‌های اندروید:</span>
+        </h4>
+        <ol class="list-decimal list-inside space-y-1 text-slate-300 pr-1 leading-relaxed">
+          <li>نرم‌افزار <b>v2rayNG</b> یا <b>Hiddify</b> را از گوگل پلی دانلود و نصب کنید.</li>
+          <li>در تب «سرویس من»، دکمه «کپی لینک اتصال» را لمس کنید.</li>
+          <li>وارد برنامه شوید و آیکون <b>+</b> را زده و <b>Import from clipboard</b> را انتخاب کنید.</li>
+          <li>کانفیگ اضافه شده را لمس کرده و دکمه اتصال (V) را بزنید.</li>
+        </ol>
+      </div>
+
+      <div class="rounded-2xl glass-card p-4 space-y-2">
+        <h4 class="font-bold text-white flex items-center gap-2">
+          <span>🍏</span>
+          <span>راهنمای اتصال در گوشی‌های آیفون (iOS):</span>
+        </h4>
+        <ol class="list-decimal list-inside space-y-1 text-slate-300 pr-1 leading-relaxed">
+          <li>نرم‌افزار <b>Streisand</b> یا <b>FoXray</b> یا <b>V2Box</b> را از اپ استور دانلود کنید.</li>
+          <li>لینک سابسکریپشن کپی شده را در بخش <b>Add Subscription</b> پیست کنید.</li>
+          <li>دکمه بروزرسانی اشتراک را بزنید تا نودها نمایش داده شوند و متصل شوید.</li>
+        </ol>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================================== -->
+  <!-- BOTTOM TAB NAVIGATION                          -->
+  <!-- ============================================== -->
+  <nav class="fixed bottom-0 inset-x-0 z-40 glass-nav py-2 px-3 max-w-md mx-auto">
+    <div class="grid grid-cols-5 gap-1 text-center text-[10px] font-semibold">
+      
+      <button onclick="switchTab('tab-services')" id="nav-tab-services" class="nav-btn active flex flex-col items-center gap-1 py-1 text-indigo-400">
+        <i class="bi bi-shield-check text-lg"></i>
+        <span>سرویس من</span>
+      </button>
+
+      <button onclick="switchTab('tab-plans')" id="nav-tab-plans" class="nav-btn flex flex-col items-center gap-1 py-1 text-slate-400 hover:text-white">
+        <i class="bi bi-box-seam text-lg"></i>
+        <span>بسته‌ها</span>
+      </button>
+
+      <button onclick="switchTab('tab-wheel')" id="nav-tab-wheel" class="nav-btn flex flex-col items-center gap-1 py-1 text-slate-400 hover:text-white">
+        <i class="bi bi-pie-chart-fill text-lg text-amber-400"></i>
+        <span>گردونه</span>
+      </button>
+
+      <button onclick="switchTab('tab-gift')" id="nav-tab-gift" class="nav-btn flex flex-col items-center gap-1 py-1 text-slate-400 hover:text-white">
+        <i class="bi bi-gift-fill text-lg text-pink-400"></i>
+        <span>کارت هدیه</span>
+      </button>
+
+      <button onclick="switchTab('tab-wallet')" id="nav-tab-wallet" class="nav-btn flex flex-col items-center gap-1 py-1 text-slate-400 hover:text-white">
+        <i class="bi bi-wallet2 text-lg"></i>
+        <span>کیف پول</span>
+      </button>
+
+    </div>
+  </nav>
+
+  <!-- ============================================== -->
+  <!-- MODAL: QR CODE DISPLAY                         -->
+  <!-- ============================================== -->
+  <div id="modal-qr" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-xs rounded-3xl glass-card p-6 text-center space-y-4 border border-indigo-500/30">
+      <div class="flex items-center justify-between">
+        <h4 class="font-bold text-xs text-white">بارکد QR اتصال اختصاصی</h4>
+        <button onclick="closeQrModal()" class="w-7 h-7 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-3 bg-white rounded-2xl inline-block mx-auto shadow-inner">
+        <div id="qrcode-box" class="w-48 h-48 flex items-center justify-center"></div>
+      </div>
+
+      <p class="text-[11px] text-slate-400 leading-relaxed">
+        دوربین نرم‌افزار v2rayNG یا Streisand را باز کرده و این بارکد را اسکن فرمایید.
+      </p>
+
+      <button onclick="closeQrModal()" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition">
+        بستن
+      </button>
+    </div>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- MODAL: RENEW / UPGRADE CONFIRMATION            -->
+  <!-- ============================================== -->
+  <div id="modal-renew" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="w-full max-w-sm rounded-3xl glass-card p-6 space-y-4 border border-indigo-500/30">
+      <div class="flex items-center justify-between">
+        <h4 class="font-bold text-xs text-white flex items-center gap-1.5">
+          <i class="bi bi-arrow-repeat text-indigo-400"></i>
+          <span>انتخاب بسته جهت تمدید یا ارتقا</span>
+        </h4>
+        <button onclick="closeRenewModal()" class="w-7 h-7 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="text-[11px] text-slate-300">
+        بسته مد نظر خود را انتخاب فرمایید. حجم انتخابی به اشتراک فعلی شما افزوده خواهد شد:
+      </div>
+
+      <div id="renew-products-list" class="space-y-2 max-h-60 overflow-y-auto custom-scroll">
+        <!-- Injected by JS -->
+      </div>
+
+      <div id="renew-status-alert" class="hidden text-xs p-3 rounded-xl"></div>
+
+      <div class="flex items-center gap-2">
+        <button onclick="closeRenewModal()" class="w-1/3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+          انصراف
+        </button>
+        <button id="btn-confirm-renew" onclick="submitRenew()" class="w-2/3 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-1.5">
+          <span>تأیید و پرداخت از کیف پول</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-2xl bg-slate-900 border border-indigo-500/50 text-white text-xs font-bold shadow-2xl flex items-center gap-2 transition-all duration-300">
+    <span id="toast-icon">✅</span>
+    <span id="toast-msg">پیام اعلان</span>
+  </div>
+
+  <!-- ============================================== -->
+  <!-- JAVASCRIPT APPLICATION LOGIC                   -->
+  <!-- ============================================== -->
+  <script>
+    // 1. Initialize Telegram WebApp
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      if (tg.setHeaderColor) tg.setHeaderColor('#0b0f19');
+      if (tg.setBackgroundColor) tg.setBackgroundColor('#0b0f19');
+    }
+
+    // State
+    let appData = null;
+    let selectedSub = null;
+    let selectedRenewProduct = null;
+
+    // Toast utility
+    function showToast(msg, icon = '✅') {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').innerText = msg;
+      document.getElementById('toast-icon').innerText = icon;
+      toast.classList.remove('hidden');
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 2500);
+    }
+
+    // Number formatter
+    function formatToman(num) {
+      return (Number(num) || 0).toLocaleString('fa-IR') + ' تومان';
+    }
+
+    // Fetch user data from backend
+    async function initApp() {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        let tgId = urlParams.get('tg_id');
+        let subId = urlParams.get('sub_id');
+        let token = urlParams.get('token');
+
+        if (!tgId && tg?.initDataUnsafe?.user?.id) {
+          tgId = tg.initDataUnsafe.user.id;
+        }
+
+        const queryParams = new URLSearchParams();
+        if (tgId) queryParams.set('tg_id', tgId);
+        if (subId) queryParams.set('sub_id', subId);
+        if (token) queryParams.set('token', token);
+
+        const res = await fetch(`/api/v1/webapp/user-data?${queryParams.toString()}`);
+        if (!res.ok) throw new Error('خطا در دریافت اطلاعات از سرور');
+        appData = await res.json();
+
+        renderApp();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('loading-state').innerHTML = `
+          <div class="text-rose-400 text-xs p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20">
+            خطا در برقراری ارتباط با سامانه: ${err.message}
+          </div>
+        `;
+      }
+    }
+
+    function renderApp() {
+      document.getElementById('loading-state').classList.add('hidden');
+      document.getElementById('tab-services').classList.remove('hidden');
+
+      // User Greeting & Wallet
+      if (appData.user) {
+        document.getElementById('user-greeting').innerText = appData.user.first_name || 'کاربر گرامی';
+        document.getElementById('header-wallet-balance').innerText = formatToman(appData.user.balance_toman);
+        document.getElementById('wallet-balance-big').innerText = formatToman(appData.user.balance_toman);
+      } else {
+        document.getElementById('user-greeting').innerText = 'کاربر مهمان';
+      }
+
+      // Render Subscriptions
+      const subs = appData.subscriptions || [];
+      const subSelector = document.getElementById('sub-selector-container');
+      if (subs.length === 0) {
+        document.getElementById('no-sub-banner').classList.remove('hidden');
+        document.getElementById('active-sub-card').classList.add('hidden');
+        if (subSelector) subSelector.classList.add('hidden');
+      } else {
+        document.getElementById('no-sub-banner').classList.add('hidden');
+        document.getElementById('active-sub-card').classList.remove('hidden');
+
+        // Multi-sub dropdown (only show if user has 2 or more active services)
+        if (subs.length > 1) {
+          const dropdown = document.getElementById('sub-select-dropdown');
+          dropdown.innerHTML = subs.map((s, idx) => `
+            <option value="${s.id}">سرویس ${idx + 1}: ${s.client_email} (${s.remaining_gb} GB)</option>
+          `).join('');
+          if (subSelector) subSelector.classList.remove('hidden');
+        } else {
+          if (subSelector) subSelector.classList.add('hidden');
+        }
+
+        // Select first or requested sub
+        selectedSub = subs[0];
+        renderSubCard(selectedSub);
+      }
+
+      // Render Plans & Flash Sale
+      renderPlansList();
+      setupFlashSaleBanner();
+    }
+
+    function renderSubCard(sub) {
+      if (!sub) return;
+      document.getElementById('sub-protocol-badge').innerText = sub.protocol;
+      document.getElementById('sub-days-left').innerText = sub.remaining_days.toLocaleString('fa-IR') + ' روز';
+      document.getElementById('sub-email-text').innerText = sub.client_email;
+      document.getElementById('sub-used-gb').innerText = sub.used_gb.toLocaleString('fa-IR');
+      document.getElementById('sub-limit-gb').innerText = sub.limit_gb > 0 ? sub.limit_gb.toLocaleString('fa-IR') : '∞';
+      document.getElementById('sub-usage-pct').innerText = sub.usage_percentage.toLocaleString('fa-IR') + '٪';
+      document.getElementById('sub-remaining-gb').innerText = sub.limit_gb > 0 ? sub.remaining_gb.toLocaleString('fa-IR') + ' GB' : 'نامحدود';
+
+      // Progress bar with color shift
+      const bar = document.getElementById('sub-progress-bar');
+      bar.style.width = `${Math.min(100, sub.usage_percentage)}%`;
+      if (sub.usage_percentage >= 90) {
+        bar.className = 'h-full rounded-full bg-gradient-to-r from-rose-500 to-amber-500 transition-all duration-700';
+      } else if (sub.usage_percentage >= 75) {
+        bar.className = 'h-full rounded-full bg-gradient-to-r from-amber-500 to-teal-400 transition-all duration-700';
+      } else {
+        bar.className = 'h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700';
+      }
+
+      // 80% / 95% Quota warning banner
+      const warningBanner = document.getElementById('quota-warning-banner');
+      if (sub.usage_percentage >= 80) {
+        warningBanner.classList.remove('hidden');
+        document.getElementById('quota-warning-text').innerText = 
+          sub.usage_percentage >= 95 
+            ? '⚠️ هشدار فوری: ۹۵٪ از حجم اشتراک مصرف شده است!' 
+            : '⚠️ هشدار مصرف: ۸۰٪ از حجم اشتراک مصرف شده است!';
+      } else {
+        warningBanner.classList.add('hidden');
+      }
+
+      // Auto-Renew Toggle State
+      const autoRenewToggle = document.getElementById('toggle-sub-autorenew');
+      if (autoRenewToggle) {
+        autoRenewToggle.checked = Boolean(sub.auto_renew);
+      }
+
+      // 1-Click Import Links
+      const subUrl = sub.subscription_url;
+      document.getElementById('btn-import-v2rayng').href = `v2rayng://install-config?url=${encodeURIComponent(subUrl)}`;
+      document.getElementById('btn-import-streisand').href = `streisand://import/${encodeURIComponent(subUrl)}`;
+      document.getElementById('btn-import-hiddify').href = `hiddify://import/${encodeURIComponent(subUrl)}`;
+    }
+
+    function onSubDropdownChange(subId) {
+      const found = (appData.subscriptions || []).find(s => s.id === subId);
+      if (found) {
+        selectedSub = found;
+        renderSubCard(found);
+      }
+    }
+
+    function renderPlansList() {
+      const container = document.getElementById('plans-container');
+      const renewList = document.getElementById('renew-products-list');
+      const products = appData.products || [];
+
+      if (products.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">بسته‌ای یافت نشد.</div>';
+        renewList.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">بسته‌ای یافت نشد.</div>';
+        return;
+      }
+
+      container.innerHTML = products.map(p => `
+        <div class="rounded-2xl glass-card p-4 border border-slate-800 hover:border-indigo-500/40 transition flex items-center justify-between gap-3">
+          <div class="space-y-1">
+            <div class="flex items-center gap-1.5">
+              <span class="font-bold text-xs text-white">${p.name}</span>
+              ${p.is_featured ? '<span class="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold">ویژه</span>' : ''}
+              ${p.discount_percent > 0 ? `<span class="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">⚡️ ${p.discount_percent}٪ صاعقه‌ای</span>` : ''}
+            </div>
+            <div class="text-[11px] text-slate-400">
+              📊 ${p.traffic_gb} گیگابایت | ⏳ ${p.duration_days} روز اعتبار
+            </div>
+            <div class="pt-0.5">
+              ${p.discount_percent > 0 ? `
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-mono font-bold text-amber-400">${formatToman(p.final_price_toman)}</span>
+                  <del class="text-[10px] text-slate-500 font-mono">${formatToman(p.price_toman)}</del>
+                </div>
+              ` : `
+                <div class="text-xs font-mono font-bold text-emerald-400">
+                  ${formatToman(p.price_toman)}
+                </div>
+              `}
+            </div>
+          </div>
+          <button onclick="pickProductForRenew('${p.id}')" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition active:scale-95 shadow-md shadow-indigo-600/20 whitespace-nowrap">
+            تمدید / ارتقا
+          </button>
+        </div>
+      `).join('');
+
+      renewList.innerHTML = products.map((p, idx) => `
+        <label class="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-indigo-500/50 cursor-pointer transition">
+          <div class="flex items-center gap-2">
+            <input type="radio" name="renew_prod" value="${p.id}" ${idx === 0 ? 'checked' : ''} onchange="selectedRenewProduct = '${p.id}'" class="accent-indigo-500">
+            <div>
+              <div class="font-bold text-xs text-white">${p.name}</div>
+              <div class="text-[10px] text-slate-400">${p.traffic_gb}GB - ${p.duration_days} روز</div>
+            </div>
+          </div>
+          <div class="text-xs font-mono font-bold text-emerald-400">
+            ${p.discount_percent > 0 ? `
+              <span class="text-amber-400">${formatToman(p.final_price_toman)}</span>
+              <del class="text-[9px] text-slate-500 mr-1">${formatToman(p.price_toman)}</del>
+            ` : formatToman(p.price_toman)}
+          </div>
+        </label>
+      `).join('');
+
+      if (products.length > 0) {
+        selectedRenewProduct = products[0].id;
+      }
+    }
+
+    // Flash Sale Timer Management
+    let flashTimerInterval = null;
+    function setupFlashSaleBanner() {
+      const banner = document.getElementById('flash-sale-banner');
+      if (!banner) return;
+      const fs = appData.flash_sale;
+      if (!fs || !fs.is_active) {
+        banner.classList.add('hidden');
+        if (flashTimerInterval) clearInterval(flashTimerInterval);
+        return;
+      }
+      banner.classList.remove('hidden');
+      const titleEl = document.getElementById('flash-sale-title');
+      if (titleEl) titleEl.innerText = fs.title || '⚡️ تخفیف ویژه صاعقه‌ای فعال است!';
+      const subEl = document.getElementById('flash-sale-subtitle');
+      if (subEl) subEl.innerText = `${fs.discount_percent}٪ تخفیف ویژه روی تمامی پلن‌ها`;
+
+      let remSec = fs.remaining_seconds || 0;
+      function updateClock() {
+        if (remSec <= 0) {
+          banner.classList.add('hidden');
+          if (flashTimerInterval) clearInterval(flashTimerInterval);
+          return;
+        }
+        const h = Math.floor(remSec / 3600);
+        const m = Math.floor((remSec % 3600) / 60);
+        const s = remSec % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        const timerEl = document.getElementById('flash-sale-timer');
+        if (timerEl) timerEl.innerText = `${pad(h)}:${pad(m)}:${pad(s)}`;
+        remSec--;
+      }
+      updateClock();
+      if (flashTimerInterval) clearInterval(flashTimerInterval);
+      flashTimerInterval = setInterval(updateClock, 1000);
+    }
+
+    // Auto-Renew Toggle Activation
+    async function toggleCurrentSubAutoRenew() {
+      if (!selectedSub) return;
+      const toggle = document.getElementById('toggle-sub-autorenew');
+      const prevVal = !toggle.checked;
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tgId = urlParams.get('tg_id') || tg?.initDataUnsafe?.user?.id;
+        const res = await fetch('/api/v1/webapp/auto-renew/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription_id: selectedSub.id,
+            telegram_id: tgId ? parseInt(tgId) : null,
+            user_id: appData?.user?.id || null,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          toggle.checked = prevVal;
+          showToast(data.detail || data.message || 'خطا در تغییر وضعیت تمدید خودکار', 'error');
+        } else {
+          selectedSub.auto_renew = data.auto_renew;
+          showToast(data.message, 'success');
+        }
+      } catch (err) {
+        toggle.checked = prevVal;
+        showToast('خطا در ارتباط با سرور', 'error');
+      }
+    }
+
+    // Emergency Grace Period Activation
+    async function triggerEmergencyGrace() {
+      if (!selectedSub) {
+        showToast('سرویس فعالی انتخاب نشده است.', '⚠️');
+        return;
+      }
+      if (!confirm('آیا مایل به فعال‌سازی اتصال اضطراری ۲۴ ساعته (۱ گیگابایت امانی به ارزش ۳,۰۰۰ تومان) هستید؟')) {
+        return;
+      }
+      try {
+        const tgId = tg?.initDataUnsafe?.user?.id || new URLSearchParams(window.location.search).get('tg_id');
+        const res = await fetch('/api/v1/webapp/emergency-grace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription_id: selectedSub.id,
+            telegram_id: tgId ? Number(tgId) : null
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.detail || data.message || 'خطا در فعال‌سازی اتصال اضطراری');
+        }
+        showToast(data.message || 'اتصال اضطراری ۲۴ ساعته با موفقیت فعال شد!', '🆘');
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } catch (err) {
+        showToast(err.message, '⚠️');
+      }
+    }
+
+    // Tab Switching
+    function switchTab(tabId) {
+      ['tab-services', 'tab-plans', 'tab-wheel', 'tab-gift', 'tab-wallet', 'tab-help'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+        const navEl = document.getElementById(`nav-${id}`);
+        if (navEl) {
+          navEl.classList.remove('active', 'text-indigo-400');
+          navEl.classList.add('text-slate-400');
+        }
+      });
+      const target = document.getElementById(tabId);
+      if (target) target.classList.remove('hidden');
+      const activeNav = document.getElementById(`nav-${tabId}`);
+      if (activeNav) {
+        activeNav.classList.add('active', 'text-indigo-400');
+        activeNav.classList.remove('text-slate-400');
+      }
+      if (tabId === 'tab-wheel') loadWebAppWheel();
+      if (tabId === 'tab-gift') loadWebAppGift();
+      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    }
+
+    // Actions
+    function copySubUrl() {
+      if (!selectedSub || !selectedSub.subscription_url) return;
+      navigator.clipboard.writeText(selectedSub.subscription_url).then(() => {
+        showToast('لینک اتصال اختصاصی کپی شد!');
+      }).catch(() => {
+        const input = document.createElement('input');
+        input.value = selectedSub.subscription_url;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        showToast('لینک کپی شد!');
+      });
+    }
+
+    function openQrModal() {
+      if (!selectedSub || !selectedSub.subscription_url) return;
+      const box = document.getElementById('qrcode-box');
+      box.innerHTML = '';
+      new QRCode(box, {
+        text: selectedSub.subscription_url,
+        width: 180,
+        height: 180,
+        colorDark: "#0b0f19",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.M
+      });
+      document.getElementById('modal-qr').classList.remove('hidden');
+      if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+    }
+
+    function closeQrModal() {
+      document.getElementById('modal-qr').classList.add('hidden');
+    }
+
+    function openRenewModal() {
+      if (!selectedSub) {
+        switchTab('tab-plans');
+        return;
+      }
+      document.getElementById('renew-status-alert').classList.add('hidden');
+      document.getElementById('modal-renew').classList.remove('hidden');
+    }
+
+    function closeRenewModal() {
+      document.getElementById('modal-renew').classList.add('hidden');
+    }
+
+    function pickProductForRenew(prodId) {
+      selectedRenewProduct = prodId;
+      openRenewModal();
+      const radio = document.querySelector(`input[name="renew_prod"][value="${prodId}"]`);
+      if (radio) radio.checked = true;
+    }
+
+    async function submitRenew() {
+      if (!selectedSub || !selectedRenewProduct) return;
+      const btn = document.getElementById('btn-confirm-renew');
+      const alertBox = document.getElementById('renew-status-alert');
+      
+      btn.disabled = true;
+      btn.innerText = 'در حال انجام عملیات...';
+      alertBox.classList.add('hidden');
+
+      try {
+        const res = await fetch('/api/v1/webapp/renew', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscription_id: selectedSub.id,
+            product_id: selectedRenewProduct,
+            telegram_id: appData.user?.telegram_id || null,
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          showToast('سرویس با موفقیت تمدید/ارتقا یافت! 🎉');
+          closeRenewModal();
+          await initApp(); // Refresh
+        } else {
+          alertBox.className = 'text-xs p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300';
+          alertBox.innerText = data.message || 'خطا در تمدید';
+          alertBox.classList.remove('hidden');
+          if (data.needs_topup) {
+            setTimeout(() => {
+              closeRenewModal();
+              switchTab('tab-wallet');
+            }, 2000);
+          }
+        }
+      } catch (err) {
+        alertBox.className = 'text-xs p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300';
+        alertBox.innerText = 'خطای اتصال به سرور: ' + err.message;
+        alertBox.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'تأیید و پرداخت از کیف پول';
+      }
+    }
+
+    function openBotWalletTopup() {
+      if (tg) {
+        tg.close();
+      }
+    }
+
+    // ----------------------------------------------------
+    // LUCKY WHEEL LOGIC
+    // ----------------------------------------------------
+    let wheelPrizes = [];
+    let isSpinning = false;
+    let wheelRotation = 0;
+    let wheelTimerInterval = null;
+
+    async function loadWebAppWheel() {
+      try {
+        const tgId = appData?.user?.telegram_id || (tg?.initDataUnsafe?.user?.id || '');
+        const res = await fetch(`/api/v1/webapp/lucky-wheel?tg_id=${tgId}`);
+        const data = await res.json();
+        wheelPrizes = data.prizes || [];
+        drawWheelCanvas(wheelPrizes);
+
+        const btn = document.getElementById('btn-spin-wheel');
+        const cooldownBox = document.getElementById('wheel-cooldown-box');
+
+        if (!data.can_spin && data.remaining_seconds > 0) {
+          btn.classList.add('hidden');
+          cooldownBox.classList.remove('hidden');
+          startWheelCooldownTimer(data.remaining_seconds);
+        } else {
+          btn.classList.remove('hidden');
+          cooldownBox.classList.add('hidden');
+          if (wheelTimerInterval) clearInterval(wheelTimerInterval);
+        }
+      } catch (err) {
+        console.error('Error loading lucky wheel:', err);
+      }
+    }
+
+    function startWheelCooldownTimer(seconds) {
+      if (wheelTimerInterval) clearInterval(wheelTimerInterval);
+      let rem = seconds;
+      function updateTimer() {
+        if (rem <= 0) {
+          clearInterval(wheelTimerInterval);
+          loadWebAppWheel();
+          return;
+        }
+        const h = Math.floor(rem / 3600);
+        const m = Math.floor((rem % 3600) / 60);
+        const s = rem % 60;
+        const pad = (n) => String(n).padStart(2, '0');
+        const timerEl = document.getElementById('wheel-timer-text');
+        if (timerEl) timerEl.innerText = `${pad(h)}:${pad(m)}:${pad(s)}`;
+        rem--;
+      }
+      updateTimer();
+      wheelTimerInterval = setInterval(updateTimer, 1000);
+    }
+
+    const WHEEL_COLORS = ['#6366f1', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#3b82f6', '#64748b'];
+
+    function drawWheelCanvas(prizes, currentAngle = 0) {
+      const canvas = document.getElementById('lucky-wheel-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const numSlices = prizes.length || 6;
+      const sliceAngle = (2 * Math.PI) / numSlices;
+      const radius = canvas.width / 2;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.save();
+      ctx.translate(radius, radius);
+      ctx.rotate(currentAngle);
+
+      for (let i = 0; i < numSlices; i++) {
+        const startA = i * sliceAngle;
+        const endA = startA + sliceAngle;
+        const prize = prizes[i] || { label: `گزینه ${i + 1}`, color: WHEEL_COLORS[i % WHEEL_COLORS.length] };
+
+        // Slice
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.arc(0, 0, radius, startA, endA);
+        ctx.fillStyle = prize.color || WHEEL_COLORS[i % WHEEL_COLORS.length];
+        ctx.fill();
+        ctx.strokeStyle = '#0b0f19';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Text & Icon
+        ctx.save();
+        ctx.rotate(startA + sliceAngle / 2);
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9px Vazirmatn, sans-serif';
+        const label = prize.icon ? `${prize.icon} ${prize.label || ''}` : (prize.label || '');
+        ctx.fillText(label.slice(0, 16), radius - 16, 3);
+        ctx.restore();
+      }
+      ctx.restore();
+    }
+
+    async function spinWebAppWheel() {
+      if (isSpinning) return;
+      const btn = document.getElementById('btn-spin-wheel');
+      const alertBox = document.getElementById('wheel-result-alert');
+      alertBox.classList.add('hidden');
+
+      const tgId = appData?.user?.telegram_id || (tg?.initDataUnsafe?.user?.id || null);
+      btn.disabled = true;
+      btn.innerHTML = '<span>در حال چرخش...</span>';
+
+      try {
+        const res = await fetch('/api/v1/webapp/lucky-wheel/spin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            telegram_id: tgId,
+            user_id: appData?.user?.id || null
+          })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alertBox.className = 'p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold';
+          alertBox.innerText = data.message || 'خطا در چرخش گردونه';
+          alertBox.classList.remove('hidden');
+          btn.disabled = false;
+          btn.innerHTML = '<span class="text-base">🎲</span> <span>چرخاندن گردونه شانس</span>';
+          return;
+        }
+
+        // Animate canvas
+        isSpinning = true;
+        const winningPrize = data.prize;
+        let winIndex = wheelPrizes.findIndex(p => p.id === winningPrize.id);
+        if (winIndex === -1) winIndex = 0;
+
+        const numSlices = wheelPrizes.length;
+        const sliceAngle = (2 * Math.PI) / numSlices;
+        const targetSliceCenter = (winIndex * sliceAngle) + (sliceAngle / 2);
+        const desiredFinalAngle = (1.5 * Math.PI) - targetSliceCenter;
+        const extraRotations = 5 * (2 * Math.PI); // 5 full rounds
+        const totalRotationNeeded = extraRotations + (desiredFinalAngle - (wheelRotation % (2 * Math.PI)));
+
+        const startRotation = wheelRotation;
+        const startTime = performance.now();
+        const duration = 4000; // 4 seconds
+
+        function animate(now) {
+          const elapsed = now - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          const ease = 1 - Math.pow(1 - progress, 3);
+          wheelRotation = startRotation + totalRotationNeeded * ease;
+          drawWheelCanvas(wheelPrizes, wheelRotation);
+
+          if (progress < 1) {
+            requestAnimationFrame(animate);
+          } else {
+            isSpinning = false;
+            btn.classList.add('hidden');
+            alertBox.className = winningPrize.type === 'empty'
+              ? 'p-3.5 rounded-2xl bg-slate-900 border border-slate-700 text-slate-300 text-xs font-bold'
+              : 'p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold shadow-lg';
+            alertBox.innerHTML = `
+              <div class="text-xs">🎉 ${data.message}</div>
+            `;
+            alertBox.classList.remove('hidden');
+            showToast(data.message, '🎁');
+            if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+            initApp();
+            startWheelCooldownTimer(24 * 3600);
+            document.getElementById('wheel-cooldown-box').classList.remove('hidden');
+          }
+        }
+        requestAnimationFrame(animate);
+
+      } catch (err) {
+        alertBox.className = 'p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold';
+        alertBox.innerText = 'خطای اتصال: ' + err.message;
+        alertBox.classList.remove('hidden');
+        btn.disabled = false;
+        btn.innerHTML = '<span class="text-base">🎲</span> <span>چرخاندن گردونه شانس</span>';
+      }
+    }
+
+    // ----------------------------------------------------
+    // GIFT CARD LOGIC
+    // ----------------------------------------------------
+    let lastGeneratedGiftLink = '';
+
+    function loadWebAppGift() {
+      const select = document.getElementById('gift-package-select');
+      if (!select) return;
+      const prods = appData?.products || [];
+      if (!prods.length) {
+        select.innerHTML = '<option value="">هیچ بسته‌ای یافت نشد</option>';
+        return;
+      }
+      select.innerHTML = prods.map(p => `
+        <option value="${p.id}">${p.name} (${p.traffic_gb}GB - ${p.duration_days} روز) — ${formatToman(p.price_toman)}</option>
+      `).join('');
+
+      const senderInput = document.getElementById('gift-sender-input');
+      if (senderInput && !senderInput.value && appData?.user?.first_name) {
+        senderInput.value = appData.user.first_name;
+      }
+    }
+
+    async function submitCreateGiftCard() {
+      const prodId = document.getElementById('gift-package-select').value;
+      const sender = document.getElementById('gift-sender-input').value.trim() || 'یک دوست عزیز';
+      const note = document.getElementById('gift-note-input').value.trim() || 'یک هدیه ویژه اینترنت پرسرعت 🎁';
+      const btn = document.getElementById('btn-create-gift');
+
+      if (!prodId) {
+        showToast('لطفاً یک بسته هدیه انتخاب کنید.', '⚠️');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'در حال صدور کارت هدیه...';
+
+      try {
+        const tgId = appData?.user?.telegram_id || (tg?.initDataUnsafe?.user?.id || null);
+        const res = await fetch('/api/v1/webapp/gift-card/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            product_id: prodId,
+            sender_name: sender,
+            gift_note: note,
+            telegram_id: tgId,
+            user_id: appData?.user?.id || null
+          })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          if (data.needs_topup) {
+            showToast(data.message, '⚠️');
+            setTimeout(() => switchTab('tab-wallet'), 1500);
+          } else {
+            showToast(data.detail || data.message || 'خطا در خرید هدیه', '❌');
+          }
+          return;
+        }
+
+        lastGeneratedGiftLink = data.deep_link;
+        document.getElementById('gift-card-code-badge').innerText = data.code;
+        document.getElementById('gift-card-preview-text').innerText = data.share_text;
+        document.getElementById('btn-share-gift-tg').href = `https://t.me/share/url?url=${encodeURIComponent(data.deep_link)}&text=${encodeURIComponent(data.product_name)}`;
+        document.getElementById('gift-card-result-box').classList.remove('hidden');
+
+        showToast('کارت هدیه با موفقیت صادر شد! 🎉');
+        initApp();
+      } catch (err) {
+        showToast('خطا در برقراری ارتباط: ' + err.message, '❌');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-gift-fill text-sm"></i> <span>خرید و صدور کارت هدیه (از کیف پول)</span>';
+      }
+    }
+
+    function copyGiftLink() {
+      if (!lastGeneratedGiftLink) return;
+      navigator.clipboard.writeText(lastGeneratedGiftLink).then(() => {
+        showToast('لینک کارت هدیه کپی شد!');
+      });
+    }
+
+    async function submitRedeemGiftCard() {
+      const code = document.getElementById('redeem-code-input').value.trim();
+      const alertBox = document.getElementById('redeem-result-alert');
+      const btn = document.getElementById('btn-redeem-gift');
+
+      if (!code) {
+        showToast('لطفاً کد هدیه را وارد کنید.', '⚠️');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'بررسی...';
+      alertBox.classList.add('hidden');
+
+      try {
+        const tgId = appData?.user?.telegram_id || (tg?.initDataUnsafe?.user?.id || null);
+        const res = await fetch('/api/v1/webapp/gift-card/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: code,
+            telegram_id: tgId,
+            user_id: appData?.user?.id || null
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          alertBox.className = 'p-3 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold';
+          alertBox.innerText = data.message || 'کارت هدیه با موفقیت فعال شد!';
+          alertBox.classList.remove('hidden');
+          showToast('کارت هدیه با موفقیت فعال شد! 🎉');
+          document.getElementById('redeem-code-input').value = '';
+          initApp();
+        } else {
+          alertBox.className = 'p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold';
+          alertBox.innerText = data.message || 'کد وارد شده نامعتبر یا استفاده شده است.';
+          alertBox.classList.remove('hidden');
+        }
+      } catch (err) {
+        alertBox.className = 'p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-bold';
+        alertBox.innerText = 'خطای اتصال: ' + err.message;
+        alertBox.classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'فعال‌سازی';
+      }
+    }
+
+    // Run on mount
+    window.addEventListener('DOMContentLoaded', () => {
+      initApp();
+      if (window.location.hash === '#wheel') {
+        setTimeout(() => switchTab('tab-wheel'), 200);
+      } else if (window.location.hash === '#gift') {
+        setTimeout(() => switchTab('tab-gift'), 200);
+      }
+    });
+  </script>
+</body>
+</html>
