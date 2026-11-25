@@ -851,9 +851,9 @@
           </button>
 
           <!-- Refresh Data Button -->
-          <button onclick="refreshCurrentTab()" title="بروزرسانی داده‌ها" 
+          <button onclick="refreshAllData()" title="بروزرسانی داده‌ها" 
             class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 text-slate-300 hover:text-white flex items-center justify-center border border-slate-700/80 transition active:rotate-180 duration-300 shadow-sm">
-            <i class="bi bi-arrow-clockwise text-sm sm:text-base"></i>
+            <i class="bi bi-arrow-clockwise text-sm sm:text-base" id="topbar-refresh-icon"></i>
           </button>
 
           <!-- Profile Chip (With Edit Username Action) -->
@@ -5390,6 +5390,12 @@
         toggleMobileSidebar();
       }
       currentTab = tabName;
+      try {
+        localStorage.setItem('admin_active_tab', tabName);
+        if (window.location.hash !== '#' + tabName) {
+          history.replaceState(null, '', '#' + tabName);
+        }
+      } catch (e) {}
       document.querySelectorAll('.nav-item').forEach(el => {
         el.className = 'nav-item w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all duration-200 text-slate-400 hover:text-white hover:bg-slate-800/60 font-medium';
       });
@@ -5498,6 +5504,76 @@
         loadSettings();
         loadPaymentDetails();
         loadTelegramBots();
+      }
+    }
+
+    // --- Automatic Background Preload of All Tabs ---
+    let isPreloadingAllTabs = false;
+    async function loadAllTabsData(force = false) {
+      if (isPreloadingAllTabs && !force) return;
+      isPreloadingAllTabs = true;
+
+      try {
+        // Batch 1: Primary operations & analytics
+        await Promise.allSettled([
+          typeof loadDashboard === 'function' ? loadDashboard() : Promise.resolve(),
+          typeof loadFinancialAnalytics === 'function' ? loadFinancialAnalytics() : Promise.resolve(),
+          typeof loadPayments === 'function' ? loadPayments() : Promise.resolve(),
+          typeof loadUsers === 'function' ? loadUsers() : Promise.resolve(),
+          typeof loadSubscriptions === 'function' ? loadSubscriptions() : Promise.resolve(),
+          typeof loadTickets === 'function' ? loadTickets() : Promise.resolve()
+        ]);
+
+        await new Promise(r => setTimeout(r, 120));
+
+        // Batch 2: Servers, Nodes, Inbounds, Audit Logs & Vouchers
+        await Promise.allSettled([
+          typeof loadPanels === 'function' ? loadPanels() : Promise.resolve(),
+          typeof loadServers === 'function' ? loadServers() : Promise.resolve(),
+          typeof loadServerHealth === 'function' ? loadServerHealth() : Promise.resolve(),
+          typeof loadProducts === 'function' ? loadProducts() : Promise.resolve(),
+          typeof loadCoupons === 'function' ? loadCoupons() : Promise.resolve(),
+          typeof loadAuditLogs === 'function' ? loadAuditLogs(1) : Promise.resolve(),
+          typeof loadVouchers === 'function' ? loadVouchers() : Promise.resolve()
+        ]);
+
+        await new Promise(r => setTimeout(r, 120));
+
+        // Batch 3: Payment gateways, Bot, Settings & Marketing
+        await Promise.allSettled([
+          typeof loadPaymentDetails === 'function' ? loadPaymentDetails() : Promise.resolve(),
+          typeof loadBankCards === 'function' ? loadBankCards() : Promise.resolve(),
+          typeof loadPaymentGateways === 'function' ? loadPaymentGateways() : Promise.resolve(),
+          typeof loadResellers === 'function' ? loadResellers() : Promise.resolve(),
+          typeof loadReferrals === 'function' ? loadReferrals() : Promise.resolve(),
+          typeof loadLuckyWheelConfig === 'function' ? loadLuckyWheelConfig() : Promise.resolve(),
+          typeof loadAdminFlashSale === 'function' ? loadAdminFlashSale() : Promise.resolve(),
+          typeof loadAdminWinback === 'function' ? loadAdminWinback() : Promise.resolve(),
+          typeof loadTelegramBots === 'function' ? loadTelegramBots() : Promise.resolve(),
+          typeof loadBotTexts === 'function' ? loadBotTexts() : Promise.resolve(),
+          typeof loadSettings === 'function' ? loadSettings() : Promise.resolve(),
+          typeof loadXuiBackups === 'function' ? loadXuiBackups() : Promise.resolve(),
+          typeof loadPiaStatus === 'function' ? loadPiaStatus() : Promise.resolve(),
+          typeof loadWindscribeStatus === 'function' ? loadWindscribeStatus() : Promise.resolve()
+        ]);
+      } catch (errPreload) {
+        console.warn('Background preload notice:', errPreload);
+      } finally {
+        isPreloadingAllTabs = false;
+      }
+    }
+
+    async function refreshAllData() {
+      const icon = document.getElementById('topbar-refresh-icon');
+      if (icon) icon.classList.add('animate-spin');
+      try {
+        refreshCurrentTab();
+        await loadAllTabsData(true);
+        showToast('اطلاعات تمام بخش‌های پنل با موفقیت بازخوانی شد.', 'success');
+      } catch (e) {
+        console.warn('refreshAllData error:', e);
+      } finally {
+        if (icon) icon.classList.remove('animate-spin');
       }
     }
 
@@ -5647,6 +5723,9 @@
       setTab('dashboard');
       showToast('ورود با موفقیت انجام شد.');
       startSystemStatsMonitor();
+      setTimeout(() => {
+        if (typeof loadAllTabsData === 'function') loadAllTabsData();
+      }, 250);
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -8514,14 +8593,40 @@
           document.getElementById('login-view').classList.add('hidden');
           document.getElementById('app-view').classList.remove('hidden');
           updateAdminDisplayNames(me.username || me.first_name || 'Admin');
-          setTab('dashboard');
+
+          // Restore active tab from URL hash or localStorage
+          let initialTab = 'dashboard';
+          const validTabs = ['dashboard', 'payments', 'users', 'subscriptions', 'tickets', 'servers', 'products', 'settings', 'payment-gateways', 'vouchers', 'telegram-bot', 'referrals', 'resellers', 'lucky-wheel', 'flash-sale', 'audit-logs'];
+          const hashTab = window.location.hash.replace('#', '').trim();
+          if (hashTab && validTabs.includes(hashTab)) {
+            initialTab = hashTab;
+          } else {
+            const savedTab = localStorage.getItem('admin_active_tab');
+            if (savedTab && validTabs.includes(savedTab)) {
+              initialTab = savedTab;
+            }
+          }
+          setTab(initialTab);
           startSystemStatsMonitor();
+
+          // Automatically load all tabs in the background
+          setTimeout(() => {
+            if (typeof loadAllTabsData === 'function') loadAllTabsData();
+          }, 250);
           return;
         } catch (e) {}
       }
       document.getElementById('login-view').classList.remove('hidden');
       document.getElementById('app-view').classList.add('hidden');
     };
+
+    window.addEventListener('hashchange', () => {
+      const hashTab = window.location.hash.replace('#', '').trim();
+      const validTabs = ['dashboard', 'payments', 'users', 'subscriptions', 'tickets', 'servers', 'products', 'settings', 'payment-gateways', 'vouchers', 'telegram-bot', 'referrals', 'resellers', 'lucky-wheel', 'flash-sale', 'audit-logs'];
+      if (hashTab && validTabs.includes(hashTab) && hashTab !== currentTab) {
+        setTab(hashTab);
+      }
+    });
 
     // ========================================================
     // NEW FEATURE ENHANCEMENTS: Hardware, Charts, Subscriptions,
