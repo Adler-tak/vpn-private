@@ -1853,39 +1853,6 @@
             </button>
           </div>
 
-          <!-- Audit Logs Section -->
-          <div class="p-6 rounded-2xl glass-card space-y-4">
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
-              <div>
-                <h3 class="text-sm font-bold text-white flex items-center gap-2">
-                  <i class="bi bi-journal-text text-indigo-400"></i>
-                  <span>گزارش رویدادها و فعالیت مدیران (Audit Logs)</span>
-                </h3>
-                <p class="text-xs text-slate-400 mt-1">ثبت و پایش اقدامات امنیتی، تغییرات اشتراک‌ها و رویدادهای سیستم</p>
-              </div>
-              <button onclick="loadAuditLogs()" class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition">
-                <i class="bi bi-arrow-repeat" id="icon-refresh-audit"></i>
-                <span>بازخوانی لاگ‌ها</span>
-              </button>
-            </div>
-
-            <div class="overflow-x-auto rounded-xl border border-slate-800">
-              <table class="w-full text-right text-xs">
-                <thead>
-                  <tr class="text-slate-400 bg-slate-900/80 border-b border-slate-800">
-                    <th class="p-3.5 font-semibold">تاریخ و ساعت</th>
-                    <th class="p-3.5 font-semibold">عملیات (Action)</th>
-                    <th class="p-3.5 font-semibold">توضیحات و جزئیات</th>
-                    <th class="p-3.5 font-semibold">آیدی مدیر (Admin ID)</th>
-                  </tr>
-                </thead>
-                <tbody id="audit-logs-tbody" class="divide-y divide-slate-800/60 bg-slate-950/40">
-                  <tr><td colspan="4" class="p-6 text-center text-slate-500">در حال دریافت لاگ‌های مدیریتی...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
         </div>
 
         <!-- ============================================== -->
@@ -5532,7 +5499,6 @@
         loadSettings();
         loadPaymentDetails();
         loadTelegramBots();
-        loadAuditLogs();
       }
     }
 
@@ -9453,47 +9419,6 @@ ${filename}
       }
     }
 
-    async function loadAuditLogs() {
-      const icon = document.getElementById('icon-refresh-audit');
-      if (icon) icon.classList.add('animate-spin');
-      const tbody = document.getElementById('audit-logs-tbody');
-      if (!tbody) return;
-      try {
-        const res = await apiFetch('/audit-logs');
-        const items = res.items || res.logs || res || [];
-        if (!Array.isArray(items) || items.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-500">هیچ رویدادی در گزارش لاگ‌ها یافت نشد.</td></tr>';
-          return;
-        }
-        tbody.innerHTML = items.map(l => {
-          const action = l.action || l.event || 'ACTION';
-          let actionBadge = 'bg-slate-800 text-slate-300';
-          if (action.includes('CREATE') || action.includes('ADD') || action.includes('APPROVE') || action.includes('EXTEND')) {
-            actionBadge = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-          } else if (action.includes('DELETE') || action.includes('REJECT') || action.includes('REVOKE')) {
-            actionBadge = 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
-          } else if (action.includes('LOGIN') || action.includes('AUTH')) {
-            actionBadge = 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20';
-          } else if (action.includes('UPDATE') || action.includes('TOGGLE')) {
-            actionBadge = 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
-          }
-          return `
-            <tr class="hover:bg-slate-900/40 transition">
-              <td class="p-3.5 text-slate-400 font-mono text-[11px]" dir="ltr">${escapeHtml(formatLogDateTime(l.created_at || l.timestamp))}</td>
-              <td class="p-3.5"><span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold ${actionBadge}">${escapeHtml(action)}</span></td>
-              <td class="p-3.5 text-slate-200 font-medium">${escapeHtml(l.description || l.details || l.message || '-')}</td>
-              <td class="p-3.5 font-mono text-slate-400">${escapeHtml(l.admin_id || l.user_id || l.admin_username || '-')}</td>
-            </tr>
-          `;
-        }).join('');
-      } catch (e) {
-        console.warn('Audit logs notice:', e);
-        tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-slate-500">لاگ مدیریتی در دسترس نیست.</td></tr>';
-      } finally {
-        if (icon) icon.classList.remove('animate-spin');
-      }
-    }
-
     async function resetSubTraffic(subId) {
       if (!confirm('آیا از صفر کردن ترافیک مصرفی این اشتراک اطمینان دارید؟')) return;
       try {
@@ -11848,9 +11773,21 @@ ${filename}
           if (item.created_at) {
             try {
               const d = new Date(item.created_at);
-              dateStr = d.toLocaleDateString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              if (isNaN(d.getTime())) {
+                dateStr = String(item.created_at).substring(0, 19).replace('T', ' ');
+              } else {
+                dateStr = d.toLocaleString('fa-IR', {
+                  year: 'numeric',
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                  hour12: false
+                });
+              }
             } catch (ed) {
-              dateStr = item.created_at.substring(0, 19).replace('T', ' ');
+              dateStr = String(item.created_at || '').substring(0, 19).replace('T', ' ');
             }
           }
 

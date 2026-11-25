@@ -42,6 +42,13 @@ async def handle_start(
     # Record Audit Log and notify admins if new user or bot start
     try:
         from app.database.models.audit import AuditLog
+        from app.bot.notifications import notify_all_admins
+        full_name = f"{db_user.first_name or ''} {db_user.last_name or ''}".strip() or "کاربر تلگرام"
+        uname = f"@{db_user.username}" if db_user.username else "ندارد"
+        effective_bot = bot or message.bot
+        now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        role_val = db_user.role.value if hasattr(db_user.role, 'value') else str(db_user.role)
+
         if is_new_user:
             audit_entry = AuditLog(
                 actor_id=db_user.telegram_id,
@@ -49,38 +56,51 @@ async def handle_start(
                 action="NEW_USER_REGISTERED",
                 target_type="User",
                 target_id=str(db_user.id),
-                details=f"ثبت‌نام و استارت کاربر جدید {db_user.first_name or ''} {db_user.last_name or ''} (@{db_user.username or 'ندارد'})",
+                details=f"ثبت‌نام و استارت کاربر جدید {full_name} ({uname})",
             )
             db_session.add(audit_entry)
             await db_session.flush()
 
-            # Broadcast Telegram Alert to Admins
-            from app.bot.notifications import notify_all_admins
-            full_name = f"{db_user.first_name or ''} {db_user.last_name or ''}".strip() or "کاربر تلگرام"
-            uname = f"@{db_user.username}" if db_user.username else "ندارد"
             ref_txt = f"<code>{db_user.referred_by_id}</code>" if db_user.referred_by_id else "مستقیم (بدون معرف)"
             admin_msg = (
-                f"👤 <b>عضو جدید ربات را استارت کرد!</b>\n\n"
+                f"👤 <b>عضو جدید ربات را استارت کرد!</b> ✨\n\n"
                 f"▫️ <b>نام:</b> {full_name}\n"
                 f"▫️ <b>یوزرنیم:</b> {uname}\n"
                 f"▫️ <b>شناسه عددی (Chat ID):</b> <code>{db_user.telegram_id}</code>\n"
                 f"▫️ <b>معرف:</b> {ref_txt}\n"
-                f"▫️ <b>تاریخ و زمان:</b> <code>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</code>"
+                f"▫️ <b>وضعیت:</b> کاربر جدید (اولین ورود)\n"
+                f"▫️ <b>تاریخ و زمان:</b> <code>{now_utc_str}</code>"
             )
-            effective_bot = bot or message.bot
             if effective_bot:
                 await notify_all_admins(bot=effective_bot, db_session=db_session, text=admin_msg)
         else:
             audit_entry = AuditLog(
                 actor_id=db_user.telegram_id,
-                actor_role="CUSTOMER",
+                actor_role=role_val,
                 action="USER_STARTED_BOT",
                 target_type="User",
                 target_id=str(db_user.id),
-                details=f"استارت مجدد ربات توسط {db_user.first_name or ''} (@{db_user.username or 'ندارد'})",
+                details=f"استارت مجدد ربات توسط {full_name} ({uname})",
             )
             db_session.add(audit_entry)
             await db_session.flush()
+
+            is_admin_check = (
+                db_user.telegram_id in settings.ADMIN_TELEGRAM_IDS
+                or str(role_val).upper() in ("ADMIN", "SUPER_ADMIN", "FINANCE", "SUPPORT")
+            )
+            role_label = "مدیر سامانه (تست / ورود)" if is_admin_check else "کاربر فعال سامانه"
+            admin_msg = (
+                f"🤖 <b>استارت ربات توسط کاربر:</b>\n\n"
+                f"▫️ <b>نام:</b> {full_name}\n"
+                f"▫️ <b>یوزرنیم:</b> {uname}\n"
+                f"▫️ <b>شناسه عددی (Chat ID):</b> <code>{db_user.telegram_id}</code>\n"
+                f"▫️ <b>نقش:</b> {role_label}\n"
+                f"▫️ <b>وضعیت:</b> کاربر قبلی سامانه\n"
+                f"▫️ <b>تاریخ و زمان:</b> <code>{now_utc_str}</code>"
+            )
+            if effective_bot:
+                await notify_all_admins(bot=effective_bot, db_session=db_session, text=admin_msg)
     except Exception as e_start_alert:
         logger.error(f"Error handling start audit/alert for user {db_user.telegram_id}: {e_start_alert}")
 
