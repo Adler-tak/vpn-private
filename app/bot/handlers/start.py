@@ -440,5 +440,16 @@ async def handle_free_trial(message: Message, db_user: User, db_session: AsyncSe
         await message.answer_photo(photo=qr_file, caption=trial_text, reply_markup=kb, parse_mode="HTML")
 
     except Exception as exc:
-        await wait_msg.edit_text(f"❌ خطا در فعال‌سازی اکانت تست: {exc}")
+        logger.error(f"Error provisioning trial subscription: {exc}", exc_info=True)
+        await db_session.rollback()
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            f"❌ <b>متأسفانه ساخت اکانت تست با خطا مواجه شد:</b>\n<code>{html.escape(str(exc))}</code>\n\n"
+            "سهمیه تست شما کسر نگردید. لطفاً دقایقی دیگر مجدداً تلاش فرمایید.",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
 

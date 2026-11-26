@@ -34,7 +34,7 @@ except ImportError:
 
 from app.core.config import settings, get_live_env, update_env_variable
 from app.core.exceptions import VPNPrivateError, InsufficientFundsError
-from app.core.constants import UserRole, PaymentStatus, OrderStatus, SubscriptionStatus, TicketStatus
+from app.core.constants import UserRole, PaymentStatus, OrderStatus, SubscriptionStatus, TicketStatus, PaymentMethod
 from app.database.session import get_db
 from app.database.models.user import User, Wallet
 from app.database.models.order import Order
@@ -48,6 +48,7 @@ from app.database.models.audit import AuditLog
 from app.database.models.reseller import Reseller, Coupon, Referral, LuckyWheelSpin
 from app.services.reseller_service import ResellerService
 from app.services.lucky_wheel_service import LuckyWheelService
+from app.services.settings_service import SettingsService
 from app.database.models.voucher import Voucher
 from app.database.models.bot import TelegramBot
 import httpx
@@ -953,6 +954,18 @@ async def activate_telegram_bot(
     await db.commit()
     await db.refresh(target_bot)
 
+    # Signal running bot process to reload token immediately
+    try:
+        Path("/tmp/bot_reload_signal").write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        data_sig = Path("data/bot_reload_signal")
+        data_sig.parent.mkdir(parents=True, exist_ok=True)
+        data_sig.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+
     return {
         "success": True,
         "message": f"ربات @{target_bot.username} با موفقیت فعال شد.",
@@ -1154,6 +1167,18 @@ async def update_telegram_bot_proxy_endpoint(
 
     await db.commit()
     await db.refresh(target_bot)
+
+    # Signal running bot process to reload token immediately
+    try:
+        Path("/tmp/bot_reload_signal").write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        data_sig = Path("data/bot_reload_signal")
+        data_sig.parent.mkdir(parents=True, exist_ok=True)
+        data_sig.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        pass
 
     return {
         "success": True,
@@ -1682,6 +1707,7 @@ async def list_payments(
         product_name = p.order.product.name if (p.order and p.order.product) else "شارژ مستقیم کیف پول"
         receipt_photo = p.receipt.telegram_file_id if p.receipt else None
         tx_ref = p.receipt.transaction_ref if p.receipt else (p.reference_id or "—")
+        has_receipt = bool(p.receipt and (p.receipt.telegram_file_id or (p.receipt.transaction_ref and p.receipt.transaction_ref != "—")))
 
         items.append({
             "id": str(p.id),
@@ -1696,10 +1722,49 @@ async def list_payments(
             "tracking_code": p.tracking_code,
             "transaction_ref": tx_ref,
             "receipt_photo": receipt_photo,
+            "has_receipt": has_receipt,
             "created_at": p.created_at.strftime("%Y-%m-%d %H:%M") if p.created_at else "—",
         })
 
     return {"total": total, "items": items}
+
+
+@router.get("/telegram-file/{file_id}")
+async def get_telegram_file_proxy(
+    file_id: str,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Proxy or stream Telegram file download for viewing receipts and ticket attachments in Web Admin."""
+    from app.database.models.bot import TelegramBot
+    bot_token = settings.BOT_TOKEN
+    active_bot = (await db.execute(select(TelegramBot).where(TelegramBot.is_active == True))).scalars().first()
+    if active_bot and active_bot.token:
+        bot_token = active_bot.token
+
+    if not bot_token:
+        raise HTTPException(status_code=400, detail="توکن ربات تلگرام تنظیم نشده است.")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            info_res = await client.get(
+                f"https://api.telegram.org/bot{bot_token}/getFile",
+                params={"file_id": file_id},
+            )
+            data = info_res.json()
+            if not data.get("ok"):
+                raise HTTPException(status_code=404, detail="فایل در تلگرام یافت نشد یا منقضی شده است.")
+            file_path = data["result"]["file_path"]
+            download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+
+            file_res = await client.get(download_url)
+            content_type = file_res.headers.get("content-type", "image/jpeg")
+            return Response(content=file_res.content, media_type=content_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error fetching telegram file {file_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"خطا در دریافت فایل از تلگرام: {exc}")
 
 
 @router.post("/payments/{payment_id}/approve")
@@ -1715,6 +1780,22 @@ async def approve_payment(
     payment = await db.get(Payment, payment_id)
     if not payment:
         raise HTTPException(status_code=404, detail="پرداخت یافت نشد.")
+
+    if payment.status == PaymentStatus.PAID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="این پرداخت قبلاً تایید شده و سرویس کاربر فعال است.",
+        )
+
+    # Validate that card-to-card payments have an uploaded receipt before manual approval
+    if payment.provider == PaymentMethod.CARD_TO_CARD:
+        receipt_res = await db.execute(select(PaymentReceipt).where(PaymentReceipt.payment_id == payment.id))
+        receipt = receipt_res.scalars().first()
+        if not receipt:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="برای این سفارش هنوز فیش یا اطلاعات واریزی توسط مشتری ثبت نشده است و امکان تایید وجود ندارد.",
+            )
 
     try:
         subscription = await order_svc.approve_and_provision_order(
@@ -1792,6 +1873,12 @@ async def reject_payment(
     payment = await db.get(Payment, payment_id)
     if not payment:
         raise HTTPException(status_code=404, detail="پرداخت یافت نشد.")
+
+    if payment.status == PaymentStatus.PAID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="این پرداخت قبلاً تایید شده و سرویس کاربر فعال گردیده است. امکان رد پرداخت تاییدشده وجود ندارد.",
+        )
 
     payment.status = PaymentStatus.REJECTED
     payment.admin_id = admin.telegram_id

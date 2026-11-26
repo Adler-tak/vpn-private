@@ -619,6 +619,19 @@
       return (Number(num) || 0).toLocaleString('fa-IR') + ' تومان';
     }
 
+    // Authenticated API Fetch Helper
+    async function webappApiFetch(url, options = {}) {
+      const headers = options.headers || {};
+      const initDataHeader = tg?.initData ? `tma ${tg.initData}` : '';
+      if (initDataHeader && !headers['Authorization']) {
+        headers['Authorization'] = initDataHeader;
+      }
+      if (!headers['Content-Type'] && options.method && options.method !== 'GET') {
+        headers['Content-Type'] = 'application/json';
+      }
+      return fetch(url, { ...options, headers });
+    }
+
     // Fetch user data from backend
     async function initApp() {
       try {
@@ -636,7 +649,7 @@
         if (subId) queryParams.set('sub_id', subId);
         if (token) queryParams.set('token', token);
 
-        const res = await fetch(`/api/v1/webapp/user-data?${queryParams.toString()}`);
+        const res = await webappApiFetch(`/api/v1/webapp/user-data?${queryParams.toString()}`);
         if (!res.ok) throw new Error('خطا در دریافت اطلاعات از سرور');
         appData = await res.json();
 
@@ -754,6 +767,7 @@
       const container = document.getElementById('plans-container');
       const renewList = document.getElementById('renew-products-list');
       const products = appData.products || [];
+      const hasSubs = (appData.subscriptions || []).length > 0;
 
       if (products.length === 0) {
         container.innerHTML = '<div class="text-xs text-slate-500 text-center py-6">بسته‌ای یافت نشد.</div>';
@@ -785,9 +799,16 @@
               `}
             </div>
           </div>
-          <button onclick="pickProductForRenew('${p.id}')" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition active:scale-95 shadow-md shadow-indigo-600/20 whitespace-nowrap">
-            تمدید / ارتقا
-          </button>
+          ${hasSubs ? `
+            <button onclick="pickProductForRenew('${p.id}')" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs transition active:scale-95 shadow-md shadow-indigo-600/20 whitespace-nowrap">
+              تمدید / ارتقا
+            </button>
+          ` : `
+            <button onclick="buyProductDirectly('${p.id}')" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition active:scale-95 shadow-md shadow-emerald-600/20 whitespace-nowrap flex items-center gap-1">
+              <span>🛒</span>
+              <span>خرید اشتراک</span>
+            </button>
+          `}
         </div>
       `).join('');
 
@@ -939,12 +960,14 @@
 
     // Actions
     function copySubUrl() {
-      if (!selectedSub || !selectedSub.subscription_url) return;
-      navigator.clipboard.writeText(selectedSub.subscription_url).then(() => {
+      if (!selectedSub) return;
+      const urlToCopy = selectedSub.subscription_url || selectedSub.direct_link;
+      if (!urlToCopy) return;
+      navigator.clipboard.writeText(urlToCopy).then(() => {
         showToast('لینک اتصال اختصاصی کپی شد!');
       }).catch(() => {
         const input = document.createElement('input');
-        input.value = selectedSub.subscription_url;
+        input.value = urlToCopy;
         document.body.appendChild(input);
         input.select();
         document.execCommand('copy');
@@ -954,11 +977,17 @@
     }
 
     function openQrModal() {
-      if (!selectedSub || !selectedSub.subscription_url) return;
+      if (!selectedSub) return;
+      // If Wireguard/AmneziaWG and direct_link exists, embed raw config in QR code
+      const targetText = (selectedSub.protocol === 'WIREGUARD' || selectedSub.protocol === 'AMNEZIAWG') && selectedSub.direct_link
+        ? selectedSub.direct_link
+        : (selectedSub.subscription_url || selectedSub.direct_link);
+      if (!targetText) return;
+
       const box = document.getElementById('qrcode-box');
       box.innerHTML = '';
       new QRCode(box, {
-        text: selectedSub.subscription_url,
+        text: targetText,
         width: 180,
         height: 180,
         colorDark: "#0b0f19",
@@ -993,6 +1022,45 @@
       if (radio) radio.checked = true;
     }
 
+    async function buyProductDirectly(prodId) {
+      const prod = (appData.products || []).find(p => p.id === prodId);
+      if (!prod) return;
+      const price = prod.final_price_toman || prod.price_toman;
+      const userBalance = appData.user?.balance_toman || 0;
+
+      if (userBalance < price) {
+        const shortage = price - userBalance;
+        if (confirm(`موجودی کیف پول شما کافی نیست (کسری: ${formatToman(shortage)}).\n\nآیا مایل به باز کردن بخش شارژ کیف پول در ربات تلگرام هستید؟`)) {
+          openBotWalletTopup();
+        }
+        return;
+      }
+
+      if (!confirm(`آیا از خرید بسته «${prod.name}» به مبلغ ${formatToman(price)} از موجودی کیف پول خود اطمینان دارید؟`)) {
+        return;
+      }
+
+      try {
+        const res = await webappApiFetch('/api/v1/webapp/purchase', {
+          method: 'POST',
+          body: JSON.stringify({
+            product_id: prodId,
+            telegram_id: appData.user?.telegram_id || null,
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('سرویس جدید شما با موفقیت ایجاد و فعال شد! 🎉');
+          await initApp();
+          switchTab('tab-services');
+        } else {
+          showToast(data.message || 'خطا در خرید اشتراک', 'error');
+        }
+      } catch (err) {
+        showToast('خطا در برقراری ارتباط با سرور: ' + err.message, 'error');
+      }
+    }
+
     async function submitRenew() {
       if (!selectedSub || !selectedRenewProduct) return;
       const btn = document.getElementById('btn-confirm-renew');
@@ -1003,9 +1071,8 @@
       alertBox.classList.add('hidden');
 
       try {
-        const res = await fetch('/api/v1/webapp/renew', {
+        const res = await webappApiFetch('/api/v1/webapp/renew', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             subscription_id: selectedSub.id,
             product_id: selectedRenewProduct,
@@ -1040,8 +1107,12 @@
     }
 
     function openBotWalletTopup() {
-      if (tg) {
-        tg.close();
+      const botName = appData?.bot_username || 'vpnprivatebot';
+      const tgLink = `https://t.me/${botName}?start=wallet`;
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openTelegramLink) {
+        window.Telegram.WebApp.openTelegramLink(tgLink);
+      } else {
+        window.open(tgLink, '_blank');
       }
     }
 

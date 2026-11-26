@@ -551,16 +551,16 @@ async def test_coupon_validation_and_skip_action(db_session: AsyncSession, setup
     order_skip = await order_svc.create_order(user_id=user.id, product_id=prod.id, coupon_code=None)
     assert order_skip.total_price_irr == prod.price_irr
 
-    # 2. 20% Percent coupon
+    # 2. 20% Percent coupon (deferred until payment completion)
     order_perc = await order_svc.create_order(user_id=user.id, product_id=prod.id, coupon_code="SAVE20")
     expected_price_perc = prod.price_irr - (prod.price_irr * 20 // 100)
     assert order_perc.total_price_irr == expected_price_perc
-    assert c_percent.current_uses == 1
+    assert c_percent.current_uses == 0  # Not consumed before payment
 
     # 3. Fixed amount coupon
     order_fix = await order_svc.create_order(user_id=user.id, product_id=prod.id, coupon_code="off10k")
     assert order_fix.total_price_irr == prod.price_irr - 10_000_0
-    assert c_fixed.current_uses == 1
+    assert c_fixed.current_uses == 0  # Not consumed before payment
 
     # 4. Expired coupon -> full price charged
     order_exp = await order_svc.create_order(user_id=user.id, product_id=prod.id, coupon_code="EXPIRED")

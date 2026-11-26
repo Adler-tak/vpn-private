@@ -715,9 +715,6 @@ async def handle_copy_crypto(callback: CallbackQuery):
     PurchaseOrderState.selecting_payment_method,
     F.photo | F.document
 )
-@router.message(
-    F.photo | F.document
-)
 async def handle_card_receipt_photo(
     message: Message,
     state: FSMContext,

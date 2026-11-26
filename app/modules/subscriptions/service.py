@@ -461,7 +461,8 @@ class SubscriptionService:
             adapter = self._get_panel_adapter(panel)
             await adapter.add_client(inbound.remote_inbound_id, spec)
         except Exception as exc:
-            logger.warning(f"Could not add trial client to remote 3x-ui ({exc}); creating local subscription record.")
+            logger.error(f"Failed to add trial client to remote 3x-ui ({exc})")
+            raise VPNPrivateError(f"خطا در ایجاد اکانت تست روی پنل سرور: {exc}") from exc
 
         subscription = Subscription(
             id=uuid.uuid4(),
@@ -519,17 +520,19 @@ class SubscriptionService:
 
         adapter = self._get_panel_adapter(panel)
 
-        try:
-            # Reset traffic on panel
-            await adapter.reset_client_traffic(inbound.remote_inbound_id, sub.client_email)
+        # Unify traffic extension: add package volume to current quota
+        add_bytes = product.traffic_bytes or int(product.traffic_gb * (1024**3))
+        base_quota = max(sub.traffic_limit_bytes or 0, sub.traffic_used_bytes or 0)
+        new_limit_bytes = base_quota + add_bytes
 
-            # Update client on panel
+        try:
+            # Update client on panel with extended traffic & expiry
             spec = ClientSpec(
                 id=sub.client_uuid,
                 email=sub.client_email,
                 flow="xtls-rprx-vision" if sub.protocol.lower() == "vless" else "",
-                limitIp=2,
-                totalGB=product.traffic_bytes,
+                limitIp=inbound.max_clients or 2,
+                totalGB=new_limit_bytes,
                 expiryTime=new_expiry_ms,
                 enable=True,
                 subId=sub.subscription_token,
@@ -541,9 +544,10 @@ class SubscriptionService:
 
         # Update local subscription
         sub.expires_at = new_expiry
-        sub.traffic_limit_bytes = product.traffic_bytes
-        sub.traffic_used_bytes = 0
+        sub.traffic_limit_bytes = new_limit_bytes
         sub.status = SubscriptionStatus.ACTIVE
+        sub.alert_traffic_sent = False
+        sub.alert_time_sent = False
         await self.session.flush()
 
         logger.info(f"Renewed subscription {sub.id}. New expiry: {new_expiry}")

@@ -65,26 +65,31 @@ def generate_qr_buffer(content: str) -> io.BytesIO:
 
 @router.message(F.text.in_([MAIN_MENU_BTNS["my_services"], MAIN_MENU_BTNS["usage"], MAIN_MENU_BTNS["renew"]]))
 async def list_user_services(message: Message, db_user: User, db_session: AsyncSession):
-    """List customer subscriptions with quick stats and action buttons."""
+    """List customer subscriptions with quick stats and action buttons (active and expired)."""
     subs_res = await db_session.execute(
         select(Subscription).where(
             and_(
                 Subscription.user_id == db_user.id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
+                Subscription.status.in_([
+                    SubscriptionStatus.ACTIVE,
+                    SubscriptionStatus.EXPIRED,
+                    SubscriptionStatus.SUSPENDED,
+                    SubscriptionStatus.DISABLED,
+                ]),
             )
-        )
+        ).order_by(Subscription.created_at.desc())
     )
     subscriptions = list(subs_res.scalars().all())
 
     if not subscriptions:
         await message.answer(
-            "📭 شما در حال حاضر هیچ سرویس فعالی ندارید.\nجهت تهیه اشتراک، از منوی اصلی دکمه **🛒 خرید سرویس** را انتخاب فرمایید."
+            "📭 شما در حال حاضر هیچ سرویسی ندارید.\nجهت تهیه اشتراک، از منوی اصلی دکمه **🛒 خرید سرویس** را انتخاب فرمایید."
         )
         return
 
     services_guide = get_bot_text(
         "services_guide",
-        "📦 <b>سرویس‌های فعال شما:</b>\n\nدر این بخش می‌توانید مشخصات، حجم مصرفی و وضعیت اتصال اشتراک‌های خود را مشاهده و مدیریت فرمایید.",
+        "📦 <b>سرویس‌های شما:</b>\n\nدر این بخش می‌توانید مشخصات، حجم مصرفی و وضعیت اتصال اشتراک‌های خود را مشاهده و مدیریت فرمایید.",
     )
     if services_guide:
         await message.answer(services_guide, parse_mode="HTML")
@@ -99,13 +104,19 @@ async def list_user_services(message: Message, db_user: User, db_session: AsyncS
         safe_flag = html.escape(server.flag_emoji if server else "🌐")
         safe_proto = html.escape((sub.protocol or "").upper())
 
+        status_badge = "🟢 <b>فعال</b>"
+        if sub.status == SubscriptionStatus.EXPIRED:
+            status_badge = "🔴 <b>منقضی شده (جهت اتصال مجدد روی دکمه تمدید کلیک کنید)</b>"
+        elif sub.status in (SubscriptionStatus.SUSPENDED, SubscriptionStatus.DISABLED):
+            status_badge = "🟡 <b>قطع موقت / اتمام حجم</b>"
+
         details = (
-            f"📦 <b>سرویس فعال:</b> <code>{safe_email}</code>\n\n"
+            f"📦 <b>سرویس:</b> <code>{safe_email}</code>\n\n"
             f"🌍 سرور: {safe_flag} <b>{loc_name}</b>\n"
             f"📡 پروتکل: <b>{safe_proto}</b>\n"
             f"📊 مصرف ترافیک: <b>{sub.traffic_used_gb} / {sub.traffic_limit_gb} گیگابایت</b>\n"
             f"⏳ تاریخ انقضا: <b>{expiry_str}</b>\n"
-            f"🟢 وضعیت: <b>فعال</b>\n"
+            f"📊 وضعیت: {status_badge}\n"
         )
         await message.answer(
             details,
@@ -352,13 +363,53 @@ async def handle_sub_autorenew_toggle(callback: CallbackQuery, db_session: Async
     await callback.answer(f"تمدید خودکار از کیف پول {status_icon}", show_alert=True)
 
 
+async def _resolve_sub_and_prod(
+    sub_raw: str,
+    prod_raw: str,
+    db_user: User,
+    db_session: AsyncSession,
+) -> tuple[Optional[Subscription], Optional[Product]]:
+    sub = None
+    product = None
+    sub_clean = sub_raw.strip().replace("-", "").lower()
+    prod_clean = prod_raw.strip().replace("-", "").lower()
+
+    if len(sub_clean) == 32:
+        try:
+            sub = await db_session.get(Subscription, uuid.UUID(sub_clean))
+        except Exception:
+            sub = None
+    if not sub:
+        subs_res = await db_session.execute(
+            select(Subscription).where(Subscription.user_id == db_user.id)
+        )
+        for s in subs_res.scalars().all():
+            if s.id.hex.startswith(sub_clean) or s.id.hex.lower() == sub_clean:
+                sub = s
+                break
+
+    if len(prod_clean) == 32:
+        try:
+            product = await db_session.get(Product, uuid.UUID(prod_clean))
+        except Exception:
+            product = None
+    if not product:
+        prods_res = await db_session.execute(select(Product))
+        for p in prods_res.scalars().all():
+            if p.id.hex.startswith(prod_clean) or p.id.hex.lower() == prod_clean:
+                product = p
+                break
+
+    return sub, product
+
+
 @router.callback_query(F.data.startswith("sub_renew:") | F.data.startswith("sub_upgrade:"))
 async def handle_sub_renew_start(
     callback: CallbackQuery,
     db_user: User,
     db_session: AsyncSession,
 ):
-    """User initiates subscription renewal or plan upgrade; list available packages."""
+    """User initiates subscription renewal or plan upgrade; list available packages with compact callbacks."""
     is_upgrade = callback.data.startswith("sub_upgrade:")
     header_title = "⚡ <b>تغییر و ارتقای اشتراک:</b>" if is_upgrade else "🔄 <b>تمدید اشتراک اختصاصی:</b>"
     guide_note = (
@@ -370,12 +421,22 @@ async def handle_sub_renew_start(
     parts = callback.data.split(":", 1)
     if len(parts) < 2 or not parts[1].strip():
         return await callback.answer("شناسه اشتراک نامعتبر است.", show_alert=True)
-    try:
-        sub_id = uuid.UUID(parts[1].strip())
-    except ValueError:
-        return await callback.answer("شناسه اشتراک نامعتبر است.", show_alert=True)
+    
+    sub_raw = parts[1].strip()
+    sub = None
+    sub_clean = sub_raw.replace("-", "").lower()
+    if len(sub_clean) == 32:
+        try:
+            sub = await db_session.get(Subscription, uuid.UUID(sub_clean))
+        except Exception:
+            pass
+    if not sub:
+        subs_res = await db_session.execute(select(Subscription).where(Subscription.user_id == db_user.id))
+        for s in subs_res.scalars().all():
+            if s.id.hex.startswith(sub_clean):
+                sub = s
+                break
 
-    sub = await db_session.get(Subscription, sub_id)
     if not sub or sub.user_id != db_user.id:
         return await callback.answer("سرویس یافت نشد یا دسترسی غیرمجاز است.", show_alert=True)
 
@@ -402,10 +463,13 @@ async def handle_sub_renew_start(
         elif is_flash and flash_pct > 0:
             price = FlashSaleService.calculate_discounted_price(price)
             badge = f" [⚡️ {flash_pct}٪ تخفیف صاعقه‌ای]"
+        
+        # Compact callback under 30 bytes: rnp:{sub_hex12}:{prod_hex12}
+        compact_cb = f"rnp:{sub.id.hex[:12]}:{prod.id.hex[:12]}"
         keyboard_buttons.append([
             InlineKeyboardButton(
                 text=f"📦 {prod.name} ({prod.traffic_gb}GB - {prod.duration_days} روز) | {price:,} تومان{badge}",
-                callback_data=f"sub_renew_prod:{sub.id}:{prod.id}",
+                callback_data=compact_cb,
             )
         ])
     keyboard_buttons.append([InlineKeyboardButton(text="🔙 انصراف و بازگشت", callback_data="sub_renew_cancel")])
@@ -437,27 +501,20 @@ async def handle_sub_renew_cancel(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text("عملیات تمدید لغو شد.")
 
 
-@router.callback_query(F.data.startswith("sub_renew_prod:"))
+@router.callback_query(F.data.startswith("sub_renew_prod:") | F.data.startswith("rnp:"))
 async def handle_sub_renew_pick_product(
     callback: CallbackQuery,
     db_user: User,
     db_session: AsyncSession,
 ):
-    """User picks product for renewal; show payment options (Wallet vs Card-to-Card)."""
+    """User picks product for renewal; show payment options (Wallet vs Card-to-Card) with compact callbacks."""
     parts = callback.data.split(":")
     if len(parts) < 3 or not parts[1].strip() or not parts[2].strip():
         return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
-    try:
-        sub_id = uuid.UUID(parts[1].strip())
-        product_id = uuid.UUID(parts[2].strip())
-    except ValueError:
-        return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
 
-    sub = await db_session.get(Subscription, sub_id)
+    sub, product = await _resolve_sub_and_prod(parts[1], parts[2], db_user, db_session)
     if not sub or sub.user_id != db_user.id:
         return await callback.answer("سرویس یافت نشد یا دسترسی غیرمجاز است.", show_alert=True)
-
-    product = await db_session.get(Product, product_id)
     if not product or not product.is_active:
         return await callback.answer("پلن انتخابی معتبر نیست.", show_alert=True)
 
@@ -474,13 +531,16 @@ async def handle_sub_renew_pick_product(
     wallet = wallet_res.scalar_one_or_none()
     balance_toman = wallet.balance_toman if wallet else 0
 
+    compact_sub = sub.id.hex[:12]
+    compact_prod = product.id.hex[:12]
+
     payment_buttons = []
-    # Option 1: Instant Wallet Renewal if sufficient balance
+    # Option 1: Instant Wallet Renewal if sufficient balance (under 30 bytes)
     if balance_toman >= price_toman:
         payment_buttons.append([
             InlineKeyboardButton(
                 text=f"⚡ تمدید آنی با موجودی کیف پول ({price_toman:,} تومان)",
-                callback_data=f"sub_renew_wallet:{sub.id}:{product.id}",
+                callback_data=f"rnw:{compact_sub}:{compact_prod}",
             )
         ])
     else:
@@ -496,10 +556,10 @@ async def handle_sub_renew_pick_product(
         payment_buttons.append([
             InlineKeyboardButton(
                 text="💳 پرداخت کارت به کارت جهت تمدید",
-                callback_data=f"sub_renew_c2c:{sub.id}:{product.id}",
+                callback_data=f"rnc:{compact_sub}:{compact_prod}",
             )
         ])
-    payment_buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"sub_renew:{sub.id}")])
+    payment_buttons.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data=f"sub_renew:{compact_sub}")])
 
     safe_email = html.escape(sub.client_email or "")
     safe_prod_name = html.escape(product.name or "")
@@ -515,7 +575,7 @@ async def handle_sub_renew_pick_product(
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("sub_renew_wallet:"))
+@router.callback_query(F.data.startswith("sub_renew_wallet:") | F.data.startswith("rnw:"))
 async def handle_sub_renew_wallet(
     callback: CallbackQuery,
     db_user: User,
@@ -525,17 +585,10 @@ async def handle_sub_renew_wallet(
     parts = callback.data.split(":")
     if len(parts) < 3 or not parts[1].strip() or not parts[2].strip():
         return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
-    try:
-        sub_id = uuid.UUID(parts[1].strip())
-        product_id = uuid.UUID(parts[2].strip())
-    except ValueError:
-        return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
 
-    sub = await db_session.get(Subscription, sub_id)
+    sub, product = await _resolve_sub_and_prod(parts[1], parts[2], db_user, db_session)
     if not sub or sub.user_id != db_user.id:
         return await callback.answer("سرویس یافت نشد.", show_alert=True)
-
-    product = await db_session.get(Product, product_id)
     if not product or not product.is_active:
         return await callback.answer("پلن نامعتبر است.", show_alert=True)
 
@@ -561,7 +614,7 @@ async def handle_sub_renew_wallet(
             reason="RENEWAL",
         )
 
-        # Renew subscription on panel and DB
+        # Renew subscription on panel and DB (adds traffic to quota)
         renewed_sub = await sub_svc.renew_subscription(
             subscription_id=sub.id,
             product_id=product.id,
@@ -573,6 +626,7 @@ async def handle_sub_renew_wallet(
             order_id=None,
             user_id=db_user.id,
             amount_irr=price_irr,
+            amount_toman=price_toman,
             provider=PaymentMethod.WALLET,
             status=PaymentStatus.PAID,
             paid_at=datetime.now(timezone.utc),
@@ -607,7 +661,7 @@ async def handle_sub_renew_wallet(
         await callback.answer(f"خطا در تمدید: {e}", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("sub_renew_c2c:"))
+@router.callback_query(F.data.startswith("sub_renew_c2c:") | F.data.startswith("rnc:"))
 async def handle_sub_renew_c2c(
     callback: CallbackQuery,
     state: FSMContext,
@@ -618,17 +672,10 @@ async def handle_sub_renew_c2c(
     parts = callback.data.split(":")
     if len(parts) < 3 or not parts[1].strip() or not parts[2].strip():
         return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
-    try:
-        sub_id = uuid.UUID(parts[1].strip())
-        product_id = uuid.UUID(parts[2].strip())
-    except ValueError:
-        return await callback.answer("اطلاعات تمدید نامعتبر است.", show_alert=True)
 
-    sub = await db_session.get(Subscription, sub_id)
+    sub, product = await _resolve_sub_and_prod(parts[1], parts[2], db_user, db_session)
     if not sub or sub.user_id != db_user.id:
         return await callback.answer("سرویس یافت نشد.", show_alert=True)
-
-    product = await db_session.get(Product, product_id)
     if not product or not product.is_active:
         return await callback.answer("پلن نامعتبر است.", show_alert=True)
 

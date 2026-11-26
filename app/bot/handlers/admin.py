@@ -1103,6 +1103,15 @@ async def reject_payment_by_admin(
 
     payment_id = uuid.UUID(callback.data.split(":")[1])
     payment = await db_session.get(Payment, payment_id)
+    if not payment:
+        return await callback.answer("پرداخت یافت نشد.", show_alert=True)
+
+    if payment.status == PaymentStatus.PAID:
+        return await callback.answer(
+            "⚠️ این پرداخت قبلاً تایید شده و سرویس کاربر فعال گردیده است!\nامکان رد کردن پرداخت تاییدشده وجود ندارد.",
+            show_alert=True,
+        )
+
     if payment:
         payment.status = PaymentStatus.REJECTED
         payment.admin_id = callback.from_user.id
@@ -3944,6 +3953,47 @@ async def view_admin_sub_detail(callback: CallbackQuery, db_user: User, db_sessi
     await callback.answer()
 
 
+async def _sync_sub_to_remote_panel(sub: Subscription, db_session: AsyncSession) -> tuple[bool, str]:
+    """Sync subscription state, traffic limit, expiry, enable status and sub token to 3X-UI panel."""
+    try:
+        panel = await db_session.get(Panel, sub.panel_id)
+        inbound = await db_session.get(Inbound, sub.inbound_id)
+        if not panel or not inbound:
+            return False, "سرور یا اینباند متصل به اشتراک یافت نشد."
+        if not panel.is_active:
+            return False, f"پنل سرور {panel.name} غیرفعال است."
+
+        from app.integrations.xui.client import ThreeXUIClient
+        from app.integrations.xui.adapter import ThreeXUIPanelAdapter
+        from app.integrations.xui.schemas import ClientSpec
+
+        client = ThreeXUIClient(
+            base_url=panel.base_url,
+            username=panel.username,
+            password=panel.password,
+            api_token=panel.api_token,
+            login_secret=panel.login_secret,
+        )
+        adapter = ThreeXUIPanelAdapter(client)
+        remote_inb = getattr(inbound, "remote_inbound_id", getattr(inbound, "panel_inbound_id", 1))
+        expiry_ms = int(sub.expires_at.timestamp() * 1000) if sub.expires_at else 0
+        spec = ClientSpec(
+            id=sub.client_uuid,
+            email=sub.client_email,
+            flow="xtls-rprx-vision" if (sub.protocol or "").lower() == "vless" else "",
+            limitIp=inbound.max_clients or 2,
+            totalGB=int(sub.traffic_limit_bytes or 0),
+            expiryTime=expiry_ms,
+            enable=(sub.status == SubscriptionStatus.ACTIVE),
+            subId=sub.subscription_token,
+        )
+        success = await adapter.update_client(remote_inb, sub.client_uuid, spec)
+        return success, ""
+    except Exception as exc:
+        logger.warning(f"Failed to sync subscription {sub.id} to panel: {exc}")
+        return False, str(exc)
+
+
 @router.callback_query(F.data.startswith("admin_sub_add_traffic:"))
 async def admin_sub_add_traffic(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
     if not is_admin(db_user):
@@ -3959,8 +4009,16 @@ async def admin_sub_add_traffic(callback: CallbackQuery, db_user: User, db_sessi
     extra_bytes = extra_gb * (1024**3)
     if sub.traffic_limit_bytes > 0:
         sub.traffic_limit_bytes += extra_bytes
+    
+    panel_ok, panel_err = await _sync_sub_to_remote_panel(sub, db_session)
     await db_session.commit()
-    await callback.answer(f"✅ مقدار {extra_gb} گیگابایت به اشتراک اضافه شد!", show_alert=True)
+
+    if panel_ok:
+        msg = f"✅ مقدار {extra_gb} گیگابایت اضافه و روی پنل سرور اعمال شد!"
+    else:
+        msg = f"⚠️ مقدار {extra_gb} گیگ در دیتابیس ثبت شد اما اعمال روی پنل با خطا مواجه شد:\n{panel_err}"
+
+    await callback.answer(msg, show_alert=True)
     await view_admin_sub_detail(callback, db_user, db_session)
 
 
@@ -3982,8 +4040,16 @@ async def admin_sub_add_days(callback: CallbackQuery, db_user: User, db_session:
     sub.expires_at = base + timedelta(days=extra_days)
     if sub.status != SubscriptionStatus.ACTIVE:
         sub.status = SubscriptionStatus.ACTIVE
+
+    panel_ok, panel_err = await _sync_sub_to_remote_panel(sub, db_session)
     await db_session.commit()
-    await callback.answer(f"✅ مدت {extra_days} روز به اعتبار اشتراک اضافه شد!", show_alert=True)
+
+    if panel_ok:
+        msg = f"✅ مدت {extra_days} روز به اعتبار اضافه و روی پنل اعمال شد!"
+    else:
+        msg = f"⚠️ تاریخ تمدید شد اما اعمال روی پنل با خطا مواجه شد:\n{panel_err}"
+
+    await callback.answer(msg, show_alert=True)
     await view_admin_sub_detail(callback, db_user, db_session)
 
 
@@ -3998,12 +4064,20 @@ async def admin_sub_toggle_status(callback: CallbackQuery, db_user: User, db_ses
 
     if sub.status == SubscriptionStatus.ACTIVE:
         sub.status = SubscriptionStatus.DISABLED
-        msg = "اشتراک موقتاً قطع شد."
+        status_action = "قطع موقت"
     else:
         sub.status = SubscriptionStatus.ACTIVE
-        msg = "اشتراک با موفقیت فعال شد."
+        status_action = "فعال‌سازی مجدد"
+
+    panel_ok, panel_err = await _sync_sub_to_remote_panel(sub, db_session)
     await db_session.commit()
-    await callback.answer(f"✅ {msg}", show_alert=True)
+
+    if panel_ok:
+        msg = f"✅ اشتراک با موفقیت {status_action} و روی پنل سرور همگام شد."
+    else:
+        msg = f"⚠️ وضعیت اشتراک در دیتابیس {status_action} شد اما همگام‌سازی پنل با خطا مواجه شد:\n{panel_err}"
+
+    await callback.answer(msg, show_alert=True)
     await view_admin_sub_detail(callback, db_user, db_session)
 
 
@@ -4018,7 +4092,17 @@ async def admin_sub_reset_sub(callback: CallbackQuery, db_user: User, db_session
 
     from app.core.security import generate_sub_id
     sub.subscription_token = generate_sub_id(16)
+
+    panel_ok, panel_err = await _sync_sub_to_remote_panel(sub, db_session)
     await db_session.commit()
+
+    if panel_ok:
+        msg = "✅ لینک سابسکریپشن کاربر بازنشانی و روی پنل همگام شد!"
+    else:
+        msg = f"⚠️ توکن در دیتابیس تغییر یافت اما همگام‌سازی پنل با خطا مواجه شد:\n{panel_err}"
+
+    await callback.answer(msg, show_alert=True)
+    await view_admin_sub_detail(callback, db_user, db_session)
     await callback.answer("✅ لینک سابسکریپشن کاربر با موفقیت تغییر کرد و توکن جدید صادر شد!", show_alert=True)
     await view_admin_sub_detail(callback, db_user, db_session)
 

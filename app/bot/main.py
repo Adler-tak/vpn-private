@@ -145,7 +145,8 @@ def create_dispatcher() -> Dispatcher:
 
 
 async def run_bot():
-    """Run bot polling with active proxy settings."""
+    """Run bot polling with dynamic active token reloading and proxy support."""
+    from pathlib import Path
     try:
         from app.database.session import engine, Base
         async with engine.begin() as conn:
@@ -158,27 +159,65 @@ async def run_bot():
     except Exception as e:
         logger.debug(f"DB init check in bot runner: {e}")
 
-    bot = await create_bot_async()
-    dp = create_dispatcher()
-    logger.info("Starting VPN Private Telegram Bot in long-polling mode...")
+    while True:
+        bot = await create_bot_async()
+        dp = create_dispatcher()
+        current_token = bot.token
+        logger.info(f"Starting VPN Private Telegram Bot session (token: ...{current_token[-6:] if current_token else 'none'})...")
 
-    # Configure Telegram Chat Menu Button to open Mini App directly
-    try:
-        from aiogram.types import MenuButtonWebApp, WebAppInfo
-        from app.bot.keyboards.default import get_effective_webapp_url
-        webapp_url = get_effective_webapp_url()
-        if webapp_url.startswith("https://"):
-            await bot.set_chat_menu_button(
-                menu_button=MenuButtonWebApp(text="App", web_app=WebAppInfo(url=webapp_url))
-            )
-            logger.info(f"Telegram Chat Menu Button set to WebApp: {webapp_url}")
-    except Exception as mb_err:
-        logger.debug(f"Could not set chat menu button: {mb_err}")
+        # Configure Telegram Chat Menu Button to open Mini App directly
+        try:
+            from aiogram.types import MenuButtonWebApp, WebAppInfo
+            from app.bot.keyboards.default import get_effective_webapp_url
+            webapp_url = get_effective_webapp_url()
+            if webapp_url.startswith("https://"):
+                await bot.set_chat_menu_button(
+                    menu_button=MenuButtonWebApp(text="App", web_app=WebAppInfo(url=webapp_url))
+                )
+                logger.info(f"Telegram Chat Menu Button set to WebApp: {webapp_url}")
+        except Exception as mb_err:
+            logger.debug(f"Could not set chat menu button: {mb_err}")
 
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+        stop_event = asyncio.Event()
+
+        async def _watch_bot_token():
+            while not stop_event.is_set():
+                await asyncio.sleep(5)
+                try:
+                    from app.database.session import AsyncSessionLocal
+                    from app.database.models.bot import TelegramBot
+                    from sqlalchemy import select
+                    async with AsyncSessionLocal() as session:
+                        res = await session.execute(select(TelegramBot).where(TelegramBot.is_active == True))
+                        active_b = res.scalars().first()
+                        if active_b and active_b.token and active_b.token != current_token:
+                            logger.info(f"Detected new active bot token (@{active_b.username}) in database! Reloading bot...")
+                            await dp.stop_polling()
+                            break
+
+                    for path in (Path("/tmp/bot_reload_signal"), Path("data/bot_reload_signal")):
+                        if path.exists():
+                            try:
+                                path.unlink(missing_ok=True)
+                                logger.info("Detected bot reload signal file! Reloading bot...")
+                                await dp.stop_polling()
+                                break
+                            except Exception:
+                                pass
+                except Exception as e_w:
+                    logger.debug(f"Bot token watcher check: {e_w}")
+
+        watcher_task = asyncio.create_task(_watch_bot_token())
+
+        try:
+            await dp.start_polling(bot)
+        finally:
+            stop_event.set()
+            watcher_task.cancel()
+            await bot.session.close()
+
+        logger.info("Bot polling session terminated. Refreshing active bot and restarting polling...")
+        await asyncio.sleep(2)
 
 
 if __name__ == "__main__":

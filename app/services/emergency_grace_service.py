@@ -86,22 +86,35 @@ class EmergencyGraceService:
             panel = await session.get(Panel, sub.panel_id)
             inbound = await session.get(Inbound, sub.inbound_id)
             if panel and inbound and panel.is_active:
-                from app.integrations.xui.client import XUIClient
-                client = XUIClient(panel.base_url, panel.username, panel.password)
-                async with client:
-                    await client.update_client(
-                        inbound_id=inbound.panel_inbound_id,
-                        client_uuid=sub.client_uuid,
-                        email=sub.client_email,
-                        limit_ip=inbound.max_clients or 2,
-                        total_gb=int(sub.traffic_limit_bytes),
-                        expiry_time=int(sub.expires_at.timestamp() * 1000),
-                        enable=True,
-                        sub_id=sub.subscription_token,
-                    )
+                from app.integrations.xui.client import ThreeXUIClient
+                from app.integrations.xui.adapter import ThreeXUIPanelAdapter
+                from app.integrations.xui.schemas import ClientSpec
+                client = ThreeXUIClient(
+                    base_url=panel.base_url,
+                    username=panel.username,
+                    password=panel.password,
+                    api_token=panel.api_token,
+                    login_secret=panel.login_secret,
+                )
+                adapter = ThreeXUIPanelAdapter(client)
+                remote_inb = getattr(inbound, "remote_inbound_id", getattr(inbound, "panel_inbound_id", 1))
+                expiry_ms = int(sub.expires_at.timestamp() * 1000)
+                spec = ClientSpec(
+                    id=sub.client_uuid,
+                    email=sub.client_email,
+                    flow="xtls-rprx-vision" if (sub.protocol or "").lower() == "vless" else "",
+                    limitIp=inbound.max_clients or 2,
+                    totalGB=int(sub.traffic_limit_bytes or 0),
+                    expiryTime=expiry_ms,
+                    enable=True,
+                    subId=sub.subscription_token,
+                )
+                await adapter.update_client(remote_inb, sub.client_uuid, spec)
                 logger.info(f"Re-enabled client {sub.client_email} in panel {panel.name} for Emergency Grace.")
         except Exception as panel_err:
-            logger.warning(f"Could not sync emergency grace to panel (handled gracefully): {panel_err}")
+            logger.error(f"Could not sync emergency grace to panel: {panel_err}")
+            await session.rollback()
+            return {"success": False, "message": f"خطا در برقراری اتصال با سرور جهت اعمال اتصال اضطراری: {panel_err}"}
 
         await session.commit()
         await session.refresh(sub)

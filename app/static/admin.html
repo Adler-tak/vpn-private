@@ -5885,14 +5885,16 @@
           return;
         }
 
-        grid.innerHTML = res.items.map(p => `
+        grid.innerHTML = res.items.map(p => {
+          const canApprove = p.has_receipt || Boolean(p.receipt_photo) || (p.provider === 'CARD_TO_CARD' && p.transaction_ref && p.transaction_ref !== '—');
+          return `
           <div class="p-5 rounded-2xl glass-card space-y-3.5 relative">
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold text-white">${escapeHtml(p.customer_name)} ${p.customer_username ? `<span class="text-[10px] text-indigo-400 font-mono">@${escapeHtml(p.customer_username)}</span>` : ''}</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 p.status === 'PAID' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                p.status === 'PENDING' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-              }">${p.status === 'PENDING' ? '⏳ منتظر تایید' : p.status === 'PAID' ? '✅ تایید شده' : '❌ رد شده'}</span>
+                p.status === 'PENDING' ? (canApprove ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-slate-700/50 text-slate-400 border border-slate-700') : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+              }">${p.status === 'PENDING' ? (canApprove ? '⏳ منتظر تایید' : '⏳ در انتظار فیش') : p.status === 'PAID' ? '✅ تایید شده' : '❌ رد شده'}</span>
             </div>
 
             <div class="text-xs space-y-1.5 text-slate-300">
@@ -5912,22 +5914,49 @@
                 <span class="text-slate-400">کد رهگیری:</span>
                 <span class="font-mono text-[11px] text-slate-400">${escapeHtml(p.tracking_code) || '—'}</span>
               </div>
+              ${p.transaction_ref && p.transaction_ref !== '—' ? `
+                <div class="flex justify-between text-indigo-300 bg-indigo-950/30 p-1.5 rounded-lg border border-indigo-800/30">
+                  <span class="text-slate-400">کد رهگیری فیش:</span>
+                  <span class="font-mono text-[11px] font-bold">${escapeHtml(p.transaction_ref)}</span>
+                </div>
+              ` : ''}
               <div class="flex justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800">
                 <span>زمان ارسال:</span>
                 <span>${p.created_at}</span>
               </div>
             </div>
 
+            ${p.receipt_photo ? `
+              <div class="p-2 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                <div class="text-[10px] text-slate-400 flex justify-between">
+                  <span>🖼 فیش ارسالی کاربر</span>
+                  <a href="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" target="_blank" class="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold">بزرگنمایی &larr;</a>
+                </div>
+                <a href="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" target="_blank" class="block overflow-hidden rounded-lg bg-slate-950 border border-slate-800 max-h-36">
+                  <img src="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" alt="فیش واریزی" class="w-full h-32 object-cover hover:scale-105 transition" loading="lazy" />
+                </a>
+              </div>
+            ` : ''}
+
             <div class="flex items-center gap-2 pt-2 border-t border-slate-800">
-              ${p.status === 'PENDING' ? `
-                <button onclick="approvePayment('${p.id}')" class="flex-1 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
-                  <i class="bi bi-check-circle"></i>
-                  <span>تایید و ساخت</span>
-                </button>
-                <button onclick="rejectPayment('${p.id}')" class="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs border border-rose-500/30 transition">
-                  رد
-                </button>
-              ` : `
+              ${p.status === 'PENDING' ? (
+                canApprove ? `
+                  <button onclick="approvePayment('${p.id}')" class="flex-1 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm">
+                    <i class="bi bi-check-circle"></i>
+                    <span>تایید و ساخت</span>
+                  </button>
+                  <button onclick="rejectPayment('${p.id}')" class="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs border border-rose-500/30 transition">
+                    رد
+                  </button>
+                ` : `
+                  <div class="flex-1 py-1.5 px-2 rounded-xl bg-slate-900 text-amber-400 text-[10px] text-center border border-amber-500/20 font-medium">
+                    ⏳ در انتظار ارسال فیش توسط کاربر
+                  </div>
+                  <button onclick="rejectPayment('${p.id}')" class="px-3 py-1.5 rounded-xl bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white font-bold text-xs border border-rose-500/30 transition">
+                    رد
+                  </button>
+                `
+              ) : `
                 <div class="flex-1 text-[10px] text-slate-500 font-mono">ID: ${p.id.slice(0, 8)}...</div>
               `}
               <button onclick="deletePayment('${p.id}', ${p.amount_toman}, '${escapeHtml(p.customer_name || 'کاربر')}')" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-semibold border border-rose-500/20 transition flex items-center gap-1 shrink-0" title="حذف این پرداخت و کسر از کل فروش">
@@ -5936,7 +5965,8 @@
               </button>
             </div>
           </div>
-        `).join('');
+        `;
+        }).join('');
 
       } catch (e) { console.error(e); }
     }
@@ -7009,6 +7039,14 @@
           <div class="p-3 rounded-xl max-w-[85%] text-xs ${m.sender_type === 'CUSTOMER' ? 'bg-slate-900 text-slate-200 ml-auto border border-slate-800' : 'bg-indigo-600/30 text-indigo-200 mr-auto border border-indigo-500/30'}">
             <div class="font-bold text-[10px] mb-1 opacity-70">${m.sender_type === 'CUSTOMER' ? '👤 کاربر' : '👑 پشتیبانی'} (${escapeHtml(m.created_at)})</div>
             <div class="whitespace-pre-wrap">${escapeHtml(m.text)}</div>
+            ${m.attachment_file_id ? `
+              <div class="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between">
+                <span class="text-[10px] text-slate-400">📎 فایل یا تصویر ضمیمه</span>
+                <a href="/api/v1/admin/telegram-file/${encodeURIComponent(m.attachment_file_id)}" target="_blank" class="px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 font-bold text-[10px] border border-indigo-500/30 transition">
+                  مشاهده ضمیمه &larr;
+                </a>
+              </div>
+            ` : ''}
           </div>
         `).join('');
 

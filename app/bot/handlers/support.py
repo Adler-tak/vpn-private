@@ -4,6 +4,7 @@ import uuid
 import re
 import logging
 from aiogram import Router, F, Bot
+from aiogram.filters import BaseFilter
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from sqlalchemy import select, cast, String
@@ -20,6 +21,14 @@ from app.bot.handlers.admin import is_admin
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+class AdminReplyFilter(BaseFilter):
+    """Filter that passes only if the replying user is a registered Admin/Superadmin."""
+    async def __call__(self, message: Message, db_user: Optional[User] = None) -> bool:
+        if db_user:
+            return is_admin(db_user)
+        return bool(message.from_user and message.from_user.id in settings.ADMIN_TELEGRAM_IDS)
 
 
 @router.message(F.text == MAIN_MENU_BTNS["support"])
@@ -275,7 +284,7 @@ async def handle_admin_close_ticket(callback: CallbackQuery, db_user: User, db_s
         await callback.answer("تیکت یافت نشد.", show_alert=True)
 
 
-@router.message(F.reply_to_message)
+@router.message(F.reply_to_message, AdminReplyFilter())
 async def handle_admin_ticket_reply(
     message: Message,
     bot: Bot,

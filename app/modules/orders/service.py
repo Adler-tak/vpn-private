@@ -99,7 +99,7 @@ class OrderService:
                         price_irr = max(0, price_irr - discount)
                     elif coupon.discount_amount_irr > 0:
                         price_irr = max(0, price_irr - coupon.discount_amount_irr)
-                    coupon.current_uses += 1
+                    # Note: coupon.current_uses is deferred until payment completion
 
         user = await self.session.get(User, user_id)
         if user and user.role == UserRole.RESELLER and not coupon:
@@ -348,16 +348,24 @@ class OrderService:
             if init_res.authority:
                 payment.reference_id = init_res.authority
 
-        elif method == PaymentMethod.WALLET:
-            # Immediate deduction from internal wallet
-            await self.wallet_service.debit(
-                user_id=order.user_id,
-                amount_irr=order.total_price_irr,
-                order_id=str(order.id),
-            )
+        elif method == PaymentMethod.WALLET or order.total_price_irr <= 0:
+            # Immediate deduction from internal wallet (skip if 0 cost due to 100% coupon)
+            if order.total_price_irr > 0:
+                await self.wallet_service.debit(
+                    user_id=order.user_id,
+                    amount_irr=order.total_price_irr,
+                    order_id=str(order.id),
+                )
             payment.status = PaymentStatus.PAID
             payment.paid_at = datetime.now(timezone.utc)
             payment.tracking_code = f"WAL-{payment.id.hex[:8].upper()}"
+
+            # Increment coupon usage upon successful completion
+            if order.coupon_id:
+                coupon = await self.session.get(Coupon, order.coupon_id)
+                if coupon:
+                    coupon.current_uses += 1
+
             await self.session.flush()
 
             # Provision VPN immediately
@@ -368,7 +376,7 @@ class OrderService:
                 payment_id=str(payment.id),
                 tracking_code=payment.tracking_code,
                 status="PAID",
-                instructions="پرداخت از موجودی کیف پول با موفقیت انجام شد.",
+                instructions="پرداخت سفارش با موفقیت انجام شد.",
             )
             return payment, init_res
         else:
@@ -507,6 +515,12 @@ class OrderService:
             amount_irr=payment.amount_irr,
             payment_id=str(payment.id),
         )
+
+        # Increment coupon usage upon order approval and provisioning
+        if order.coupon_id:
+            coupon = await self.session.get(Coupon, order.coupon_id)
+            if coupon:
+                coupon.current_uses += 1
 
         # Check and grant referral commission
         await self._process_referral_reward(order)

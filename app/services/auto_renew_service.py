@@ -193,6 +193,7 @@ class AutoRenewService:
                     if panel and inbound and panel.is_active:
                         from app.integrations.xui.client import ThreeXUIClient
                         from app.integrations.xui.adapter import ThreeXUIPanelAdapter
+                        from app.integrations.xui.schemas import ClientSpec
                         client = ThreeXUIClient(
                             base_url=panel.base_url,
                             username=panel.username,
@@ -203,13 +204,20 @@ class AutoRenewService:
                         adapter = ThreeXUIPanelAdapter(client)
                         remote_inb = getattr(inbound, "remote_inbound_id", getattr(inbound, "panel_inbound_id", 1))
                         expiry_ms = int(sub.expires_at.timestamp() * 1000) if sub.expires_at else 0
+                        spec = ClientSpec(
+                            id=sub.client_uuid,
+                            email=sub.client_email,
+                            flow="xtls-rprx-vision" if (sub.protocol or "").lower() == "vless" else "",
+                            limitIp=inbound.max_clients or 2,
+                            totalGB=int(sub.traffic_limit_bytes or 0),
+                            expiryTime=expiry_ms,
+                            enable=True,
+                            subId=sub.subscription_token,
+                        )
                         await adapter.update_client(
                             inbound_id=remote_inb,
                             client_uuid=sub.client_uuid,
-                            email=sub.client_email,
-                            total_gb=int(sub.traffic_limit_bytes or 0),
-                            expiry_time=expiry_ms,
-                            enable=True,
+                            spec=spec,
                         )
                 except Exception as p_err:
                     logger.warning(f"Could not sync auto-renewal to panel {sub.panel_id}: {p_err}")

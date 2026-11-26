@@ -91,6 +91,58 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def validate_telegram_init_data(init_data: str, bot_token: str) -> Optional[dict]:
+    """
+    Validate Telegram Mini App initData per Telegram's official specification:
+    https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    """
+    import urllib.parse
+    import json
+    import time
+    if not init_data or not bot_token:
+        return None
+    try:
+        # Strip optional "tma " prefix if present in Authorization header
+        raw_query = init_data.strip()
+        if raw_query.lower().startswith("tma "):
+            raw_query = raw_query[4:].strip()
+        elif raw_query.lower().startswith("bearer "):
+            raw_query = raw_query[7:].strip()
+
+        parsed_data = dict(urllib.parse.parse_qsl(raw_query, keep_blank_values=True))
+        received_hash = parsed_data.pop("hash", None)
+        if not received_hash:
+            return None
+
+        # Build data_check_string from sorted key-value pairs
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed_data.items()))
+        
+        # secret_key = HMAC_SHA256(key="WebAppData", msg=bot_token)
+        secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+        
+        # expected_hash = HMAC_SHA256(key=secret_key, msg=data_check_string)
+        expected_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+
+        if not hmac.compare_digest(received_hash, expected_hash):
+            return None
+
+        # Optional auth_date freshness check (within 48 hours)
+        auth_date = int(parsed_data.get("auth_date", 0))
+        if auth_date > 0:
+            now_ts = int(time.time())
+            if now_ts - auth_date > 86400 * 2:
+                logger.warning("Telegram initData expired (older than 48h)")
+                return None
+
+        if "user" in parsed_data and isinstance(parsed_data["user"], str):
+            parsed_data["user"] = json.loads(parsed_data["user"])
+
+        return parsed_data
+    except Exception as exc:
+        logger.warning(f"Error validating telegram initData: {exc}")
+        return None
+
+
 def create_access_token(*args, **kwargs):
     """Convenience alias for admin JWT creation."""
     from app.api.auth import create_admin_token

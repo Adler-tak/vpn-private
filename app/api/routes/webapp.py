@@ -1,36 +1,112 @@
 """Telegram Mini App (WebApp) backend routes."""
 import logging
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, Header, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
 from app.database.models.user import User, Wallet
+from app.database.models.order import Order
+from app.database.models.payment import Payment
 from app.database.models.subscription import Subscription
 from app.database.models.product import Product
-from app.database.models.panel import Panel, Server
+from app.database.models.panel import Panel, Server, Inbound
+from app.database.models.bot import TelegramBot
 from app.core.config import settings, get_live_env
-from app.core.constants import SubscriptionStatus
+from app.core.constants import SubscriptionStatus, OrderStatus, PaymentStatus, PaymentMethod
+from app.core.security import validate_telegram_init_data
 from app.services.settings_service import get_effective_bot_username
 from app.services.lucky_wheel_service import LuckyWheelService
 from app.services.gift_card_service import GiftCardService
 from app.modules.vouchers.service import VoucherService
 from app.services.flash_sale_service import FlashSaleService
 from app.services.emergency_grace_service import EmergencyGraceService
+from app.modules.accounting.service import AccountingService
+from app.modules.subscriptions.service import SubscriptionService
+from app.integrations.xui.schemas import ClientSpec
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
+async def _get_active_bot_token(db: AsyncSession) -> str:
+    res = await db.execute(select(TelegramBot).where(TelegramBot.is_active == True))
+    active_bot = res.scalars().first()
+    if active_bot and active_bot.token:
+        return active_bot.token
+    return settings.BOT_TOKEN or ""
+
+
+async def resolve_webapp_caller(
+    authorization: Optional[str],
+    x_telegram_init_data: Optional[str],
+    tg_id_param: Optional[int],
+    db: AsyncSession,
+) -> Optional[User]:
+    """Validate Telegram initData cryptographic HMAC-SHA256 signature and return authenticated User."""
+    raw_init_data = None
+    if isinstance(authorization, str) and authorization.strip():
+        raw_val = authorization.strip()
+        if raw_val.lower().startswith("tma "):
+            raw_init_data = raw_val[4:].strip()
+        elif raw_val.lower().startswith("bearer "):
+            raw_init_data = raw_val[7:].strip()
+        else:
+            raw_init_data = raw_val
+    elif isinstance(x_telegram_init_data, str) and x_telegram_init_data.strip():
+        raw_init_data = x_telegram_init_data.strip()
+
+    if raw_init_data:
+        token = await _get_active_bot_token(db)
+        validated = validate_telegram_init_data(raw_init_data, token)
+        if validated and "user" in validated and isinstance(validated["user"], dict):
+            tg_user = validated["user"]
+            auth_tg_id = tg_user.get("id")
+            if auth_tg_id:
+                user_res = await db.execute(select(User).where(User.telegram_id == auth_tg_id))
+                user = user_res.scalars().first()
+                if not user:
+                    user = User(
+                        id=uuid.uuid4(),
+                        telegram_id=auth_tg_id,
+                        first_name=tg_user.get("first_name", "کاربر گرامی"),
+                        last_name=tg_user.get("last_name"),
+                        username=tg_user.get("username"),
+                    )
+                    db.add(user)
+                    await db.flush()
+                return user
+        else:
+            logger.warning("MiniApp authentication: Invalid or forged Telegram initData signature received!")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="امضای هویت تلگرام معتبر نیست. لطفاً مجدداً از درون ربات وارد شوید.",
+            )
+
+    # Fallback to tg_id only in test/development environments or when no bot token is configured
+    if tg_id_param:
+        app_env = getattr(settings, "ENVIRONMENT", "development")
+        if app_env in ("development", "test") or not settings.BOT_TOKEN:
+            user_res = await db.execute(select(User).where(User.telegram_id == tg_id_param))
+            return user_res.scalars().first()
+
+    return None
+
+
 class RenewWebRequest(BaseModel):
     subscription_id: str = Field(..., description="UUID of the subscription to renew or upgrade")
     product_id: str = Field(..., description="UUID of the product package selected")
+    telegram_id: Optional[int] = Field(None, description="Telegram ID of the customer")
+
+
+class PurchaseWebRequest(BaseModel):
+    product_id: str = Field(..., description="UUID of the product package to buy")
     telegram_id: Optional[int] = Field(None, description="Telegram ID of the customer")
 
 
@@ -41,21 +117,18 @@ class EmergencyGraceRequest(BaseModel):
 
 @router.get("/user-data")
 async def get_webapp_user_data(
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     tg_id: Optional[int] = Query(None, description="Telegram user ID"),
     token: Optional[str] = Query(None, description="Subscription token or direct token"),
     sub_id: Optional[str] = Query(None, description="Direct subscription UUID"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Fetch profile, active subscriptions, and renewal packages for Telegram Mini App."""
-    user = None
+    """Fetch profile, subscriptions (active and expired), and renewal packages for Telegram Mini App."""
+    user = await resolve_webapp_caller(authorization, x_telegram_init_data, tg_id, db)
     target_sub = None
 
-    # 1. Resolve user by Telegram ID
-    if tg_id:
-        user_res = await db.execute(select(User).where(User.telegram_id == tg_id))
-        user = user_res.scalars().first()
-
-    # 2. Resolve by sub_id or token if user not resolved yet
+    # Resolve by sub_id or token if user not authenticated via Telegram initData
     if not user and sub_id:
         try:
             s_uuid = uuid.UUID(sub_id)
@@ -72,15 +145,22 @@ async def get_webapp_user_data(
         if target_sub:
             user = await db.get(User, target_sub.user_id)
 
-    # 3. Fetch all active subscriptions for the user
+    # Fetch subscriptions for the user (both ACTIVE and EXPIRED so user can renew!)
     subs_data = []
+    sub_service = SubscriptionService(db)
+
     if user:
         subs_query = await db.execute(
             select(Subscription)
             .where(
                 and_(
                     Subscription.user_id == user.id,
-                    Subscription.status == SubscriptionStatus.ACTIVE,
+                    Subscription.status.in_([
+                        SubscriptionStatus.ACTIVE,
+                        SubscriptionStatus.EXPIRED,
+                        SubscriptionStatus.SUSPENDED,
+                        SubscriptionStatus.DISABLED,
+                    ]),
                 )
             )
             .order_by(Subscription.created_at.desc())
@@ -105,8 +185,19 @@ async def get_webapp_user_data(
                 diff = exp - now
                 rem_days = max(0, diff.days)
 
-            # Build direct sub URL
+            # Unify connection details & direct links with Telegram bot logic
             sub_url = f"{settings.SERVER_HOST}/sub/{s.subscription_token}"
+            direct_link = ""
+            flag_emoji = "🌐"
+            loc_title = "سرور اختصاصی"
+            try:
+                conn_info = await sub_service.get_connection_details(s.id)
+                sub_url = conn_info.get("subscription_url") or sub_url
+                direct_link = conn_info.get("direct_link") or ""
+                flag_emoji = conn_info.get("flag") or flag_emoji
+                loc_title = conn_info.get("location") or loc_title
+            except Exception as e_conn:
+                logger.debug(f"Connection details fallback for sub {s.id}: {e_conn}")
 
             subs_data.append({
                 "id": str(s.id),
@@ -121,10 +212,13 @@ async def get_webapp_user_data(
                 "expires_at": s.expires_at.isoformat() if s.expires_at else None,
                 "remaining_days": rem_days,
                 "subscription_url": sub_url,
+                "direct_link": direct_link,
+                "server_flag": flag_emoji,
+                "server_location": loc_title,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
             })
 
-    # 4. Fetch available products (packages) and flash sale status
+    # Fetch available products (packages) and flash sale status
     flash_sale_info = FlashSaleService.get_flash_sale_info()
     is_flash = flash_sale_info.get("is_active", False)
     flash_pct = flash_sale_info.get("discount_percent", 0)
@@ -182,9 +276,11 @@ async def get_webapp_user_data(
 @router.post("/renew")
 async def webapp_renew_subscription(
     req: RenewWebRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
-    """Renew or upgrade a subscription via wallet balance directly inside the Mini App."""
+    """Renew or upgrade a subscription via wallet balance directly inside the Mini App with full panel sync and payment logging."""
     try:
         sub_uuid = uuid.UUID(req.subscription_id)
         prod_uuid = uuid.UUID(req.product_id)
@@ -195,9 +291,14 @@ async def webapp_renew_subscription(
     if not sub:
         raise HTTPException(status_code=404, detail="اشتراک مورد نظر یافت نشد.")
 
+    # Authenticate caller
+    auth_user = await resolve_webapp_caller(authorization, x_telegram_init_data, req.telegram_id, db)
     user = await db.get(User, sub.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر مالک اشتراک یافت نشد.")
+
+    if auth_user and auth_user.id != user.id and auth_user.telegram_id != user.telegram_id:
+        raise HTTPException(status_code=403, detail="شما دسترسی به تمدید این اشتراک را ندارید.")
 
     product = await db.get(Product, prod_uuid)
     if not product or not product.is_active:
@@ -205,6 +306,7 @@ async def webapp_renew_subscription(
 
     # Calculate effective price with flash sale discount if active
     effective_price_toman = FlashSaleService.calculate_discounted_price(product.price_toman)
+    effective_price_irr = effective_price_toman * 10
 
     # Check wallet balance
     wallet = user.wallet
@@ -224,29 +326,94 @@ async def webapp_renew_subscription(
             "shortage_toman": diff,
         }
 
-    # Deduct balance in IRR (Toman * 10)
+    # 1. Deduct balance in IRR (Toman * 10)
     if wallet:
-        wallet.balance_irr -= (effective_price_toman * 10)
+        wallet.balance_irr -= effective_price_irr
 
-    # Add traffic & duration to subscription
+    # 2. Add traffic & duration to subscription (unify with bot logic: add package volume to quota)
     now = datetime.now(timezone.utc)
     add_traffic_bytes = product.traffic_bytes or int(product.traffic_gb * (1024**3))
-    sub.traffic_limit_bytes = (sub.traffic_limit_bytes or 0) + add_traffic_bytes
+    base_limit = max(sub.traffic_limit_bytes or 0, sub.traffic_used_bytes or 0)
+    sub.traffic_limit_bytes = base_limit + add_traffic_bytes
 
     current_expiry = sub.expires_at or now
     if current_expiry.tzinfo is None:
         current_expiry = current_expiry.replace(tzinfo=timezone.utc)
     base_date = max(now, current_expiry)
-    from datetime import timedelta
     sub.expires_at = base_date + timedelta(days=product.duration_days)
     sub.status = SubscriptionStatus.ACTIVE
     sub.alert_traffic_sent = False
     sub.alert_time_sent = False
 
+    # 3. Create Order and Payment record for accounting and audit trail
+    order = Order(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        product_id=product.id,
+        server_id=sub.server_id,
+        total_price_irr=effective_price_irr,
+        status=OrderStatus.COMPLETED,
+    )
+    db.add(order)
+
+    payment = Payment(
+        id=uuid.uuid4(),
+        order_id=order.id,
+        user_id=user.id,
+        amount_irr=effective_price_irr,
+        provider=PaymentMethod.WALLET,
+        status=PaymentStatus.PAID,
+        tracking_code=f"WAL-{uuid.uuid4().hex[:8].upper()}",
+        paid_at=now,
+    )
+    db.add(payment)
+
+    accounting_svc = AccountingService(db)
+    try:
+        await accounting_svc.record_order_purchase_from_wallet(
+            user_id=str(user.id),
+            order_id=str(order.id),
+            amount_irr=effective_price_irr,
+        )
+    except Exception as acct_err:
+        logger.warning(f"Accounting ledger write skipped for web renew: {acct_err}")
+
+    # 4. Sync client settings with remote 3X-UI / VPN-UI panel
+    try:
+        panel = await db.get(Panel, sub.panel_id)
+        inbound = await db.get(Inbound, sub.inbound_id)
+        if panel and inbound and panel.is_active:
+            from app.integrations.xui.client import ThreeXUIClient
+            from app.integrations.xui.adapter import ThreeXUIPanelAdapter
+            client = ThreeXUIClient(
+                base_url=panel.base_url,
+                username=panel.username,
+                password=panel.password,
+                api_token=panel.api_token,
+                login_secret=panel.login_secret,
+            )
+            adapter = ThreeXUIPanelAdapter(client)
+            remote_inb = getattr(inbound, "remote_inbound_id", getattr(inbound, "panel_inbound_id", 1))
+            expiry_ms = int(sub.expires_at.timestamp() * 1000)
+            spec = ClientSpec(
+                id=sub.client_uuid,
+                email=sub.client_email,
+                flow="xtls-rprx-vision" if sub.protocol.lower() == "vless" else "",
+                limitIp=inbound.max_clients or 2,
+                totalGB=sub.traffic_limit_bytes,
+                expiryTime=expiry_ms,
+                enable=True,
+                subId=sub.subscription_token,
+            )
+            await adapter.update_client(remote_inb, sub.client_uuid, spec)
+            logger.info(f"MiniApp Renew: Successfully synced client {sub.client_email} to panel {panel.name}")
+    except Exception as exc:
+        logger.warning(f"MiniApp Renew: Panel sync warning for sub {sub.id}: {exc}")
+
     await db.commit()
 
     logger.info(
-        f"MiniApp Renew: User {user.id} renewed sub {sub.id} with product {product.name} ({product.price_toman} Toman)"
+        f"MiniApp Renew SUCCESS: User {user.id} renewed sub {sub.id} with product {product.name} ({effective_price_toman} Toman)"
     )
 
     return {
@@ -255,6 +422,72 @@ async def webapp_renew_subscription(
         "new_balance": wallet.balance_toman if wallet else 0,
         "remaining_gb": sub.remaining_gb,
         "expires_at": sub.expires_at.isoformat(),
+    }
+
+
+@router.post("/purchase")
+async def webapp_purchase_subscription(
+    req: PurchaseWebRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """First-time purchase or buying a new service directly inside Mini App via wallet balance."""
+    try:
+        prod_uuid = uuid.UUID(req.product_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="شناسه پکیج نامعتبر است.")
+
+    user = await resolve_webapp_caller(authorization, x_telegram_init_data, req.telegram_id, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="جهت خرید اشتراک ابتدا باید وارد حساب خود شوید.")
+
+    product = await db.get(Product, prod_uuid)
+    if not product or not product.is_active:
+        raise HTTPException(status_code=400, detail="بسته انتخابی فعال نیست.")
+
+    effective_price_toman = FlashSaleService.calculate_discounted_price(product.price_toman)
+    effective_price_irr = effective_price_toman * 10
+
+    wallet = user.wallet
+    if not wallet:
+        w_res = await db.execute(select(Wallet).where(Wallet.user_id == user.id))
+        wallet = w_res.scalars().first()
+
+    current_balance = wallet.balance_toman if wallet else 0
+    if current_balance < effective_price_toman:
+        diff = effective_price_toman - current_balance
+        return {
+            "success": False,
+            "needs_topup": True,
+            "message": f"موجودی کیف پول شما کافی نیست. کسری: {diff:,} تومان",
+            "required_toman": effective_price_toman,
+            "current_balance": current_balance,
+            "shortage_toman": diff,
+        }
+
+    # Deduct wallet
+    if wallet:
+        wallet.balance_irr -= effective_price_irr
+
+    from app.modules.orders.service import OrderService
+    order_svc = OrderService(db)
+    order = await order_svc.create_order(
+        user_id=user.id,
+        product_id=product.id,
+        idempotency_key=f"webapp_buy_{user.id}_{product.id}_{int(datetime.now(timezone.utc).timestamp())}",
+    )
+    payment, init_res = await order_svc.initiate_payment(
+        order_id=order.id,
+        method=PaymentMethod.WALLET,
+    )
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": f"سفارش شما با بسته «{product.name}» با موفقیت فعال شد! 🎉",
+        "order_id": str(order.id),
+        "new_balance": wallet.balance_toman if wallet else 0,
     }
 
 
@@ -271,7 +504,17 @@ async def _resolve_user_helper(
     tg_id: Optional[int],
     u_id_str: Optional[str],
     db: AsyncSession,
+    authorization: Optional[str] = None,
+    x_telegram_init_data: Optional[str] = None,
 ) -> Optional[User]:
+    if authorization or x_telegram_init_data:
+        try:
+            auth_u = await resolve_webapp_caller(authorization, x_telegram_init_data, tg_id, db)
+            if auth_u:
+                return auth_u
+        except Exception:
+            pass
+
     if tg_id:
         user_res = await db.execute(select(User).where(User.telegram_id == tg_id))
         user = user_res.scalars().first()
