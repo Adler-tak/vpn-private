@@ -41,10 +41,12 @@ async def handle_start(
 
     # Record Audit Log and notify admins if new user or bot start
     try:
+        import html as pyhtml
         from app.database.models.audit import AuditLog
         from app.bot.notifications import notify_all_admins
-        full_name = f"{db_user.first_name or ''} {db_user.last_name or ''}".strip() or "کاربر تلگرام"
-        uname = f"@{db_user.username}" if db_user.username else "ندارد"
+        raw_full_name = f"{db_user.first_name or ''} {db_user.last_name or ''}".strip() or "کاربر تلگرام"
+        full_name = pyhtml.escape(raw_full_name)
+        uname = f"@{pyhtml.escape(db_user.username)}" if db_user.username else "ندارد"
         effective_bot = bot or message.bot
         now_utc_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         role_val = db_user.role.value if hasattr(db_user.role, 'value') else str(db_user.role)
@@ -56,7 +58,7 @@ async def handle_start(
                 action="NEW_USER_REGISTERED",
                 target_type="User",
                 target_id=str(db_user.id),
-                details=f"ثبت‌نام و استارت کاربر جدید {full_name} ({uname})",
+                details=f"ثبت‌نام و استارت کاربر جدید {raw_full_name} ({uname})",
             )
             db_session.add(audit_entry)
             await db_session.flush()
@@ -80,7 +82,7 @@ async def handle_start(
                 action="USER_STARTED_BOT",
                 target_type="User",
                 target_id=str(db_user.id),
-                details=f"استارت مجدد ربات توسط {full_name} ({uname})",
+                details=f"استارت مجدد ربات توسط {raw_full_name} ({uname})",
             )
             db_session.add(audit_entry)
             await db_session.flush()
@@ -355,7 +357,7 @@ async def handle_free_trial(message: Message, db_user: User, db_session: AsyncSe
         select(User.id).where(User.id == db_user.id).with_for_update()
     )
 
-    # Check if user already reached their allowed trial limit
+    # Check if user already reached their allowed trial limit (check both active subs and audit log history)
     trial_count_res = await db_session.execute(
         select(func.count(Subscription.id)).where(
             Subscription.user_id == db_user.id,
@@ -363,9 +365,20 @@ async def handle_free_trial(message: Message, db_user: User, db_session: AsyncSe
         )
     )
     user_trial_count = trial_count_res.scalar() or 0
+
+    from app.database.models.audit import AuditLog
+    audit_trial_res = await db_session.execute(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.actor_id == db_user.telegram_id,
+            AuditLog.action == "TRIAL_ACTIVATED",
+        )
+    )
+    audit_trial_count = audit_trial_res.scalar() or 0
+    effective_trial_count = max(user_trial_count, audit_trial_count)
+
     max_trials = getattr(settings, "TRIAL_MAX_COUNT", 1)
 
-    if user_trial_count >= max_trials:
+    if effective_trial_count >= max_trials:
         return await message.answer(
             f"⚠️ <b>شما قبلاً سقف مجاز اکانت تست رایگان خود ({max_trials} مرتبه) را استفاده کرده‌اید!</b>\n\n"
             "برای دریافت اشتراک پرسرعت و پایدار، لطفاً از منوی اصلی گزینه <b>🛒 خرید سرویس</b> را انتخاب نمایید.",

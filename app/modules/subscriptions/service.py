@@ -656,6 +656,7 @@ class SubscriptionService:
             "location": loc_name,
             "flag": flag,
             "protocol": sub.protocol.upper(),
+            "remark": f"{config_prefix}-{loc_code}",
         }
         if raw_config is not None:
             res["raw_config"] = raw_config

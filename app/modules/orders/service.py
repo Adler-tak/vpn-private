@@ -514,8 +514,8 @@ class OrderService:
         try:
             user_ord = await self.session.get(User, order.user_id)
             prod_name = "اشتراک"
-            if subscription and subscription.product_id:
-                p_obj = await self.session.get(Product, subscription.product_id)
+            if order and order.product_id:
+                p_obj = await self.session.get(Product, order.product_id)
                 if p_obj:
                     prod_name = p_obj.name
             audit_ord = AuditLog(

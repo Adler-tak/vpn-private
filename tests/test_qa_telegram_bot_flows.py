@@ -195,11 +195,10 @@ async def test_start_flow_admin_notifications_and_audit_logs(db_session: AsyncSe
 
 
 @pytest.mark.asyncio
-async def test_start_flow_html_unescaped_name_edge_case(db_session: AsyncSession):
+async def test_start_flow_html_escaped_name(db_session: AsyncSession):
     """
-    Edge case / flaw check:
-    Verify whether special characters like '<', '>', '&' in user's first/last name
-    are properly escaped or could break HTML formatting in admin alert.
+    Verify special characters like '<', '>', '&' in user's first/last name
+    are safely escaped with html.escape to protect Telegram HTML parse_mode.
     """
     user_service = UserService(db_session)
     user, _ = await user_service.register_or_get_user(
@@ -231,10 +230,9 @@ async def test_start_flow_html_unescaped_name_edge_case(db_session: AsyncSession
         )
         assert mock_notify.called
         sent_text = mock_notify.call_args.kwargs["text"]
-        # In start.py lines 46-73, full_name is unescaped:
-        # If unescaped, '<script>' will appear raw in HTML parse_mode, causing Telegram API rejection
-        raw_unescaped = "<script>" in sent_text
-        assert raw_unescaped, "Confirmed unescaped HTML tag in start.py admin alert message!"
+        # Verified: '<script>' is safely escaped as '&lt;script&gt;'
+        assert "&lt;script&gt;" in sent_text
+        assert "<script>" not in sent_text
 
 
 # =========================================================================
@@ -256,9 +254,36 @@ async def setup_purchase_env(db_session: AsyncSession):
     )
     db_session.add(panel)
 
+    inbound1 = Inbound(
+        id=uuid.uuid4(),
+        panel_id=panel.id,
+        remote_inbound_id=1,
+        port=443,
+        protocol="vless",
+        remark="Test Inbound DE",
+        stream_settings="{}",
+        is_active=True,
+        client_count=0,
+        max_clients=500,
+    )
+    inbound2 = Inbound(
+        id=uuid.uuid4(),
+        panel_id=panel.id,
+        remote_inbound_id=2,
+        port=443,
+        protocol="vless",
+        remark="Test Inbound NL",
+        stream_settings="{}",
+        is_active=True,
+        client_count=0,
+        max_clients=500,
+    )
+    db_session.add_all([inbound1, inbound2])
+
     server1 = Server(
         id=uuid.uuid4(),
         panel_id=panel.id,
+        inbound_id=inbound1.id,
         name="Server Germany",
         location_code="DE",
         location_name="آلمان",
@@ -270,6 +295,7 @@ async def setup_purchase_env(db_session: AsyncSession):
     server2 = Server(
         id=uuid.uuid4(),
         panel_id=panel.id,
+        inbound_id=inbound2.id,
         name="Server Netherlands",
         location_code="NL",
         location_name="هلند",
@@ -628,11 +654,10 @@ async def test_order_approval_template_interpolation_and_safedict():
 
 
 @pytest.mark.asyncio
-async def test_order_approval_remark_deficiency_bug(db_session: AsyncSession, setup_purchase_env):
+async def test_order_approval_remark_inclusion(db_session: AsyncSession, setup_purchase_env):
     """
-    Edge case check:
-    Verify whether {remark} in get_connection_details is missing,
-    causing {remark} in delivery message to always be an empty string.
+    Verify {remark} is included in SubscriptionService.get_connection_details
+    so delivery messages have the config remark/title populated.
     """
     env = setup_purchase_env
     user_service = UserService(db_session)
@@ -672,11 +697,9 @@ async def test_order_approval_remark_deficiency_bug(db_session: AsyncSession, se
     sub_svc = SubscriptionService(db_session)
     conn = await sub_svc.get_connection_details(sub.id)
 
-    # Check whether 'remark' is in conn
-    assert "remark" not in conn, (
-        "BUG CONFIRMED: SubscriptionService.get_connection_details does not include 'remark' in its return dict, "
-        "causing conn.get('remark', '') to always evaluate to empty string in delivery messages!"
-    )
+    # Check that 'remark' is present in conn
+    assert "remark" in conn
+    assert "DE" in conn["remark"]
 
 
 @pytest.mark.asyncio
@@ -936,6 +959,7 @@ async def test_voucher_plan_subscription_redemption(db_session: AsyncSession, se
         duration_months=12,
         duration_days=365,
         product_id=prod.id,
+        batch_id="batch_12m",
         is_used=False,
     )
     db_session.add(voucher)
@@ -991,7 +1015,7 @@ async def test_admin_bot_approve_payment_flow(db_session: AsyncSession, setup_pu
     mock_bot.send_message = AsyncMock()
 
     with patch("app.modules.subscriptions.service.SubscriptionService._get_panel_adapter") as mock_adapter_getter, \
-         patch("app.bot.notifications.notify_all_admins", new_callable=AsyncMock) as mock_notify:
+         patch("app.bot.handlers.admin.notify_all_admins", new_callable=AsyncMock) as mock_notify:
         mock_adapter = AsyncMock()
         mock_adapter.get_subscription_url = AsyncMock(return_value="https://sub.test/sub/approved123")
         mock_adapter.generate_client_url = MagicMock(return_value="vless://approved123@sub.test:443")
@@ -1020,12 +1044,45 @@ async def test_admin_bot_approve_payment_flow(db_session: AsyncSession, setup_pu
 
 
 @pytest.mark.asyncio
-async def test_trial_abuse_bypass_if_sub_deleted_flaw(db_session: AsyncSession, setup_purchase_env):
+async def test_order_approval_audit_log_created_successfully(db_session: AsyncSession, setup_purchase_env):
     """
-    Design flaw check:
-    handle_free_trial checks trial limit using `select(count) from subscriptions where client_email like 'trial_%'`.
-    If an expired trial subscription is pruned/deleted, user_trial_count resets to 0,
-    allowing customer to abuse free trials indefinitely despite AuditLog having records.
+    Verify OrderService.approve_and_provision_order successfully records AuditLog(action='ORDER_APPROVED')
+    using order.product_id.
+    """
+    env = setup_purchase_env
+    user_service = UserService(db_session)
+    customer, _ = await user_service.register_or_get_user(telegram_id=3003, username="audit_order_user")
+    await db_session.commit()
+
+    order_svc = OrderService(db_session)
+    order = await order_svc.create_order(user_id=customer.id, product_id=env["prod_single_loc"].id)
+    payment, _ = await order_svc.initiate_payment(order.id, PaymentMethod.CARD_TO_CARD)
+    await db_session.commit()
+
+    with patch("app.modules.subscriptions.service.SubscriptionService._get_panel_adapter") as mock_adapter_getter:
+        mock_adapter = AsyncMock()
+        mock_adapter.get_subscription_url = AsyncMock(return_value="https://sub.test/sub/approved123")
+        mock_adapter.generate_client_url = MagicMock(return_value="vless://approved123@sub.test:443")
+        mock_adapter_getter.return_value = mock_adapter
+
+        sub = await order_svc.approve_and_provision_order(payment.id, admin_id=1001)
+        await db_session.commit()
+
+        # Check that AuditLog with action='ORDER_APPROVED' was created
+        audit_res = await db_session.execute(
+            select(AuditLog).where(AuditLog.actor_id == 3003, AuditLog.action == "ORDER_APPROVED")
+        )
+        audit_entry = audit_res.scalar_one_or_none()
+        assert audit_entry is not None
+        assert "خرید و فعال‌سازی موفق اشتراک" in audit_entry.details
+
+
+@pytest.mark.asyncio
+async def test_trial_abuse_prevention_with_audit_history(db_session: AsyncSession, setup_purchase_env):
+    """
+    Verify handle_free_trial checks both Subscription rows and AuditLog history,
+    preventing users from obtaining another free trial even if the expired trial subscription
+    row was deleted/pruned from the database.
     """
     env = setup_purchase_env
     user_service = UserService(db_session)
@@ -1043,26 +1100,18 @@ async def test_trial_abuse_bypass_if_sub_deleted_flaw(db_session: AsyncSession, 
     db_session.add(audit_entry)
     await db_session.commit()
 
-    # Query using AuditLog (historical truth)
-    audit_trials_count = (await db_session.execute(
-        select(func.count(AuditLog.id)).where(
-            AuditLog.actor_id == 999888,
-            AuditLog.action == "TRIAL_ACTIVATED",
-        )
-    )).scalar() or 0
-    assert audit_trials_count == 1
+    mock_msg = AsyncMock()
+    mock_msg.chat.id = 999888
+    mock_msg.answer = AsyncMock()
 
-    # Query using current logic in start.py line 360:
-    current_check_count = (await db_session.execute(
-        select(func.count(Subscription.id)).where(
-            Subscription.user_id == user.id,
-            Subscription.client_email.like("trial_%"),
-        )
-    )).scalar() or 0
-
-    # Because subscription was deleted/pruned, current check returns 0!
-    assert current_check_count == 0, (
-        "CONFIRMED FLAW: Trial limit check queries active/existing Subscription rows instead of AuditLog. "
-        "When expired trials are pruned, user can claim unlimited free trials!"
-    )
+    orig_enabled = getattr(settings, "TRIAL_ENABLED", True)
+    try:
+        settings.TRIAL_ENABLED = True
+        await handle_free_trial(mock_msg, user, db_session)
+        assert mock_msg.answer.called
+        call_text = mock_msg.answer.call_args[0][0]
+        # Successfully blocked based on audit log history!
+        assert "قبلاً سقف مجاز اکانت تست رایگان خود" in call_text
+    finally:
+        settings.TRIAL_ENABLED = orig_enabled
 
