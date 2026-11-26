@@ -26,6 +26,7 @@ class Product(Base):
     price_irr = Column(BigInteger, nullable=False) # Base canonical price in IRR
     protocol = Column(String(32), default="vless", nullable=False) # Preferred protocol
     allowed_locations = Column(Text, default="ALL", nullable=False) # comma-separated codes/inbounds or ALL
+    location_mode = Column(String(32), default=None, nullable=True) # 'all', 'custom', or 'user_choice'
     is_active = Column(Boolean, default=True, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
     renewal_discount_percent = Column(Integer, default=5, nullable=False)

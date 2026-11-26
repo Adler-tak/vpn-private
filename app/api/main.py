@@ -147,6 +147,13 @@ async def lifespan(app: FastAPI):
                     sync_conn.execute(text("ALTER TABLE products ALTER COLUMN allowed_locations TYPE TEXT"))
                 except Exception:
                     pass
+                prod_cols = [c["name"] for c in inspector.get_columns("products")]
+                if "location_mode" not in prod_cols:
+                    try:
+                        sync_conn.execute(text("ALTER TABLE products ADD COLUMN location_mode VARCHAR(32) DEFAULT 'all'"))
+                        sync_conn.execute(text("UPDATE products SET location_mode = CASE WHEN allowed_locations IS NULL OR allowed_locations = 'ALL' THEN 'all' ELSE 'custom' END WHERE location_mode IS NULL"))
+                    except Exception:
+                        pass
             if "subscriptions" in inspector.get_table_names():
                 sub_cols = [c["name"] for c in inspector.get_columns("subscriptions")]
                 if "last_grace_at" not in sub_cols:

@@ -184,6 +184,7 @@ class ProductUpdateRequest(BaseModel):
     duration_days: Optional[int] = Field(None, ge=1, description="Duration in days (at least 1)")
     protocol: Optional[str] = None
     allowed_locations: Optional[str] = None
+    location_mode: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -195,6 +196,7 @@ class ProductCreateRequest(BaseModel):
     price_toman: int = Field(..., ge=0, description="Price in Toman (non-negative)")
     protocol: str = "vless"
     allowed_locations: str = "ALL"
+    location_mode: str = "all"
     is_active: bool = True
     sort_order: int = 0
 
@@ -5002,6 +5004,7 @@ async def list_products(
             "price_toman": p.price_toman,
             "protocol": p.protocol,
             "allowed_locations": p.allowed_locations or "ALL",
+            "location_mode": getattr(p, "location_mode", "all") or ("all" if (not p.allowed_locations or p.allowed_locations == 'ALL') else "custom"),
             "is_active": p.is_active,
             "sort_order": p.sort_order,
         }
@@ -5025,6 +5028,7 @@ async def create_product(
         duration_days=req.duration_days,
         protocol=(req.protocol or "vless").lower().strip(),
         allowed_locations=(req.allowed_locations or "ALL").strip(),
+        location_mode=(req.location_mode or "all").lower().strip(),
         is_active=req.is_active,
         sort_order=req.sort_order,
     )
@@ -5042,6 +5046,7 @@ async def create_product(
             "price_toman": p.price_toman,
             "protocol": p.protocol,
             "allowed_locations": p.allowed_locations,
+            "location_mode": p.location_mode,
             "is_active": p.is_active,
             "sort_order": p.sort_order,
         }
@@ -5071,6 +5076,8 @@ async def update_product(
         p.protocol = req.protocol.lower().strip()
     if req.allowed_locations is not None:
         p.allowed_locations = req.allowed_locations.strip()
+    if req.location_mode is not None:
+        p.location_mode = req.location_mode.lower().strip()
     if req.is_active is not None:
         p.is_active = req.is_active
     if req.sort_order is not None:

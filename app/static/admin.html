@@ -4236,29 +4236,34 @@
 
         <!-- Allowed Locations Interactive Section -->
         <div class="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2.5">
-          <div class="flex items-center justify-between">
+          <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <i class="bi bi-geo-alt-fill text-indigo-400"></i>
-              <label class="text-slate-200 font-bold text-xs">لوکیشن‌های مجاز برای کاربر:</label>
+              <label class="text-slate-200 font-bold text-xs">نحوه تحویل و لوکیشن‌های پلن:</label>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button type="button" onclick="selectAllLocations()" id="btn-select-all-locs" class="px-2.5 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 text-[11px] font-bold transition flex items-center gap-1">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <button type="button" onclick="setLocationMode('all')" id="btn-select-all-locs" class="px-2.5 py-1 rounded-lg bg-indigo-600/50 text-white border border-indigo-500/50 text-[11px] font-bold transition flex items-center gap-1">
                 <i class="bi bi-globe2"></i>
                 همه لوکیشن‌ها (ALL)
               </button>
-              <button type="button" onclick="toggleLocationPickerDropdown()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1">
+              <button type="button" onclick="setLocationMode('custom')" id="btn-select-custom-locs" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1">
                 <i class="bi bi-sliders"></i>
                 انتخاب اختصاصی
+              </button>
+              <button type="button" onclick="setLocationMode('user_choice')" id="btn-select-user-choice" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1">
+                <i class="bi bi-person-check-fill"></i>
+                به انتخاب خریدار
               </button>
             </div>
           </div>
 
-          <!-- Badges of Selected Locations -->
+          <!-- Badges & Mode Explanations -->
           <div id="selected-loc-badges" class="flex flex-wrap gap-1.5 min-h-[36px] items-center p-2 rounded-lg bg-slate-950/70 border border-slate-800/80">
             <!-- Badges inserted by JS -->
           </div>
 
           <input type="hidden" id="prod-locations" value="ALL">
+          <input type="hidden" id="prod-location-mode" value="all">
 
           <!-- Expandable Location Checklist -->
           <div id="loc-picker-panel" class="hidden pt-2 border-t border-slate-800/80 space-y-2 animate-in fade-in duration-150">
@@ -7645,7 +7650,13 @@
                 <h3 class="text-sm font-bold text-white flex items-center gap-2">
                   ${escapeHtml(p.name)}
                 </h3>
-                <span class="text-[11px] text-slate-400 font-mono mt-0.5 inline-block">لوکیشن: ${escapeHtml(p.allowed_locations) || 'ALL'}</span>
+                <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                  ${p.location_mode === 'all' || (!p.location_mode && (!p.allowed_locations || p.allowed_locations === 'ALL'))
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">🌐 همه لوکیشن‌ها (همزمان)</span>'
+                    : p.location_mode === 'user_choice'
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">🎯 به انتخاب خریدار</span>'
+                    : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/15 text-purple-300 border border-purple-500/30">⚙️ اختصاصی همزمان (' + (escapeHtml(p.allowed_locations) || 'چندگانه') + ')</span>'}
+                </div>
               </div>
               <div class="flex items-center gap-1.5 flex-shrink-0">
                 ${getProtocolBadge(p.protocol)}
@@ -7732,15 +7743,47 @@
       }).join('');
     }
 
+    let currentProductLocationMode = 'all';
+
+    function setLocationMode(mode) {
+      currentProductLocationMode = mode;
+      const modeInput = document.getElementById('prod-location-mode');
+      if (modeInput) modeInput.value = mode;
+
+      const btnAll = document.getElementById('btn-select-all-locs');
+      const btnCustom = document.getElementById('btn-select-custom-locs');
+      const btnUser = document.getElementById('btn-select-user-choice');
+      const panel = document.getElementById('loc-picker-panel');
+
+      // Reset styling
+      [btnAll, btnCustom, btnUser].forEach(btn => {
+        if (btn) btn.className = "px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold transition flex items-center gap-1 border border-transparent";
+      });
+
+      if (mode === 'all') {
+        if (btnAll) btnAll.className = "px-2.5 py-1 rounded-lg bg-indigo-600/50 hover:bg-indigo-600/70 text-white border border-indigo-400 text-[11px] font-bold transition flex items-center gap-1";
+        selectedLocationsList = ['ALL'];
+        if (panel) panel.classList.add('hidden');
+      } else if (mode === 'custom') {
+        if (btnCustom) btnCustom.className = "px-2.5 py-1 rounded-lg bg-purple-600/50 hover:bg-purple-600/70 text-white border border-purple-400 text-[11px] font-bold transition flex items-center gap-1";
+        if (selectedLocationsList.includes('ALL')) {
+          selectedLocationsList = [];
+        }
+        if (panel) panel.classList.remove('hidden');
+      } else if (mode === 'user_choice') {
+        if (btnUser) btnUser.className = "px-2.5 py-1 rounded-lg bg-emerald-600/50 hover:bg-emerald-600/70 text-white border border-emerald-400 text-[11px] font-bold transition flex items-center gap-1";
+        if (panel) panel.classList.remove('hidden');
+      }
+      updateLocationsUI();
+    }
+
     function toggleLocationPickerDropdown() {
       const panel = document.getElementById('loc-picker-panel');
       panel.classList.toggle('hidden');
     }
 
     function selectAllLocations() {
-      selectedLocationsList = ['ALL'];
-      updateLocationsUI();
-      document.getElementById('loc-picker-panel').classList.add('hidden');
+      setLocationMode('all');
     }
 
     function checkAllLocCheckboxes(check) {
@@ -7753,7 +7796,11 @@
       const cbs = document.querySelectorAll('.loc-checkbox:checked');
       const selected = Array.from(cbs).map(cb => cb.value.toUpperCase());
       if (selected.length === 0 || selected.length === availableLocations.length) {
-        selectedLocationsList = ['ALL'];
+        if (currentProductLocationMode === 'all') {
+          selectedLocationsList = ['ALL'];
+        } else {
+          selectedLocationsList = selected;
+        }
       } else {
         selectedLocationsList = selected;
       }
@@ -7764,7 +7811,7 @@
       if (selectedLocationsList.includes('ALL')) return;
       selectedLocationsList = selectedLocationsList.filter(c => c !== code);
       if (selectedLocationsList.length === 0) {
-        selectedLocationsList = ['ALL'];
+        if (currentProductLocationMode === 'all') selectedLocationsList = ['ALL'];
       }
       updateLocationsUI();
     }
@@ -7772,42 +7819,71 @@
     function updateLocationsUI(syncCheckboxes = true) {
       const input = document.getElementById('prod-locations');
       const badgesContainer = document.getElementById('selected-loc-badges');
-      const allBtn = document.getElementById('btn-select-all-locs');
-
       const isAll = selectedLocationsList.includes('ALL');
 
-      if (isAll) {
+      if (currentProductLocationMode === 'all' || (isAll && currentProductLocationMode !== 'custom')) {
         input.value = 'ALL';
-        if (allBtn) allBtn.classList.add('bg-indigo-600/50', 'border-indigo-400', 'text-white');
         if (badgesContainer) {
           badgesContainer.innerHTML = `
             <span class="px-2.5 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-bold text-xs flex items-center gap-1.5">
               <i class="bi bi-globe2 text-indigo-400"></i>
               همه لوکیشن‌ها و اینباندها (ALL)
             </span>
-            <span class="text-[10px] text-slate-400 mr-2">مشتری مجاز است از تمامی اینباندهای فعال سرورها استفاده کند</span>
+            <span class="text-[10px] text-slate-300 mr-2">🌐 دسترسی همزمان به همه سرورها — ربات بدون سوال، کانفیگ تمامی سرورهای فعال را تحویل می‌دهد</span>
           `;
         }
         if (syncCheckboxes) {
           document.querySelectorAll('.loc-checkbox').forEach(cb => cb.checked = true);
         }
-      } else {
-        input.value = selectedLocationsList.join(',');
-        if (allBtn) allBtn.classList.remove('bg-indigo-600/50', 'border-indigo-400', 'text-white');
-        
+      } else if (currentProductLocationMode === 'user_choice') {
+        input.value = selectedLocationsList.length > 0 ? selectedLocationsList.join(',') : 'ALL';
         if (badgesContainer) {
-          badgesContainer.innerHTML = selectedLocationsList.map(code => {
-            const loc = availableLocations.find(l => l.code === code) || { code, name: code, flag: '🌐' };
-            const inbTag = loc.inbound_info ? ` <span class="text-[9px] text-purple-300 font-mono">(${escapeHtml(loc.code)})</span>` : ` <span class="text-[9px] text-slate-400 font-mono">(${escapeHtml(code)})</span>`;
-            return `
-              <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-700 text-xs font-semibold">
-                <span>${loc.flag || '🌐'}</span>
-                <span>${escapeHtml(loc.name)}</span>
-                ${inbTag}
-                <button type="button" onclick="removeLocationChip('${escapeHtml(code)}')" class="text-slate-400 hover:text-rose-400 mr-1"><i class="bi bi-x"></i></button>
+          const locsDesc = selectedLocationsList.length > 0 && !selectedLocationsList.includes('ALL') 
+            ? `${selectedLocationsList.length} لوکیشن مجاز` 
+            : 'تمامی لوکیشن‌ها';
+          badgesContainer.innerHTML = `
+            <span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold text-xs flex items-center gap-1.5">
+              <i class="bi bi-person-check-fill text-emerald-400"></i>
+              به انتخاب خریدار (${locsDesc})
+            </span>
+            <span class="text-[10px] text-slate-300 mr-2">🎯 تک‌لوکیشن به انتخاب مشتری — موقع خرید در ربات، منوی انتخاب لوکیشن برای خریدار باز می‌شود</span>
+          `;
+        }
+        if (syncCheckboxes && !selectedLocationsList.includes('ALL')) {
+          document.querySelectorAll('.loc-checkbox').forEach(cb => {
+            cb.checked = selectedLocationsList.includes(cb.value) || selectedLocationsList.includes(cb.value.split('-')[0]);
+          });
+        }
+      } else {
+        // custom
+        input.value = selectedLocationsList.join(',');
+        if (badgesContainer) {
+          if (selectedLocationsList.length === 0) {
+            badgesContainer.innerHTML = `
+              <span class="text-amber-400 text-xs font-bold flex items-center gap-1">
+                <i class="bi bi-exclamation-triangle"></i> لطفاً حداقل یک لوکیشن یا اینباند را از چک‌لیست زیر تیک بزنید.
               </span>
             `;
-          }).join('');
+          } else {
+            const chips = selectedLocationsList.map(code => {
+              const loc = availableLocations.find(l => l.code === code) || { code, name: code, flag: '🌐' };
+              const inbTag = loc.inbound_info ? ` <span class="text-[9px] text-purple-300 font-mono">(${escapeHtml(loc.code)})</span>` : ` <span class="text-[9px] text-slate-400 font-mono">(${escapeHtml(code)})</span>`;
+              return `
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-purple-950/60 text-purple-200 border border-purple-800/80 text-xs font-semibold">
+                  <span>${loc.flag || '🌐'}</span>
+                  <span>${escapeHtml(loc.name)}</span>
+                  ${inbTag}
+                  <button type="button" onclick="removeLocationChip('${escapeHtml(code)}')" class="text-slate-400 hover:text-rose-400 mr-1"><i class="bi bi-x"></i></button>
+                </span>
+              `;
+            }).join('');
+            badgesContainer.innerHTML = `
+              <div class="flex flex-wrap items-center gap-1.5 w-full">
+                ${chips}
+                <span class="text-[10px] text-slate-300 mr-2 w-full mt-1">⚙️ دسترسی همزمان به سرورهای انتخابی — ربات بدون سوال، تمامی این سرورها را تحویل می‌دهد</span>
+              </div>
+            `;
+          }
         }
 
         if (syncCheckboxes) {
@@ -7832,7 +7908,7 @@
       document.getElementById('loc-picker-panel').classList.add('hidden');
       
       selectedLocationsList = ['ALL'];
-      updateLocationsUI();
+      setLocationMode('all');
       openModal('modal-product');
     }
 
@@ -7857,7 +7933,8 @@
       } else {
         selectedLocationsList = locsRaw.split(',').map(s => s.trim()).filter(Boolean);
       }
-      updateLocationsUI();
+      const initialMode = p.location_mode || ((!p.allowed_locations || p.allowed_locations === 'ALL') ? 'all' : 'custom');
+      setLocationMode(initialMode);
       openModal('modal-product');
     }
 
@@ -7869,6 +7946,7 @@
       const duration = parseInt(document.getElementById('prod-duration').value);
       const protocol = document.getElementById('prod-protocol').value;
       const locations = document.getElementById('prod-locations').value.trim() || 'ALL';
+      const locationMode = document.getElementById('prod-location-mode').value || currentProductLocationMode || 'all';
       const isActive = document.getElementById('prod-active').value === 'true';
       const sortOrder = parseInt(document.getElementById('prod-sort').value) || 0;
 
@@ -7893,6 +7971,7 @@
               duration_days: duration,
               protocol,
               allowed_locations: locations,
+              location_mode: locationMode,
               is_active: isActive,
               sort_order: sortOrder
             })
@@ -7908,6 +7987,7 @@
               duration_days: duration,
               protocol,
               allowed_locations: locations,
+              location_mode: locationMode,
               is_active: isActive,
               sort_order: sortOrder
             })
@@ -7918,6 +7998,11 @@
         loadProducts();
       } catch (err) {
         showToast(err.message, 'error');
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+      }
+    }
       } finally {
         btn.innerHTML = origText;
         btn.disabled = false;

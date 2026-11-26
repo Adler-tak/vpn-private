@@ -1236,12 +1236,21 @@ async def view_admin_product_detail(callback: CallbackQuery, db_user: User, db_s
     status_str = "🟢 فعال و در حال فروش" if product.is_active else "🔴 غیرفعال (مخفی از لیست فروش)"
     toggle_text = "🔴 غیرفعال‌سازی این پلن" if product.is_active else "🟢 فعال‌سازی این پلن"
 
+    loc_mode = getattr(product, "location_mode", "all") or ("all" if (not product.allowed_locations or product.allowed_locations == 'ALL') else "custom")
+    if loc_mode == "all":
+        mode_desc = "🌐 همه لوکیشن‌ها (همزمان - بدون پرسش)"
+    elif loc_mode == "user_choice":
+        mode_desc = f"🎯 به انتخاب خریدار (تک‌لوکیشن از {product.allowed_locations or 'ALL'})"
+    else:
+        mode_desc = f"⚙️ اختصاصی همزمان ({product.allowed_locations or 'سفارشی'})"
+
     text = (
         f"⚙️ <b>مدیریت پلن:</b> <code>{product.name}</code>\n\n"
         f"📊 حجم ترافیک: <b>{product.traffic_display}</b>\n"
         f"⏳ مدت اعتبار: <b>{product.duration_days} روز</b>\n"
         f"💰 قیمت فعلی: <b>{product.price_toman:,} تومان</b> ({product.price_irr:,} ریال)\n"
         f"📡 پروتکل پیش‌فرض: <b>{product.protocol.upper()}</b>\n"
+        f"🌍 نحوه تحویل: <b>{mode_desc}</b>\n"
         f"وضعیت فروش: <b>{status_str}</b>\n\n"
         f"جهت ویرایش هر بخش یا حذف پلن، از گزینه‌های زیر استفاده نمایید:"
     )
@@ -1256,6 +1265,9 @@ async def view_admin_product_detail(callback: CallbackQuery, db_user: User, db_s
             InlineKeyboardButton(text="⏳ تغییر مدت زمان (روز)", callback_data=f"admin_edit_prod_duration:{product.id}"),
         ],
         [
+            InlineKeyboardButton(text="🌍 نحوه تحویل و لوکیشن‌ها", callback_data=f"admin_prod_loc_menu:{product.id}"),
+        ],
+        [
             InlineKeyboardButton(text=toggle_text, callback_data=f"admin_toggle_prod:{product.id}"),
             InlineKeyboardButton(text="🗑 حذف پلن", callback_data=f"admin_delete_prod:{product.id}"),
         ],
@@ -1268,6 +1280,139 @@ async def view_admin_product_detail(callback: CallbackQuery, db_user: User, db_s
     except Exception:
         await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_prod_loc_menu:"))
+async def view_admin_product_location_menu(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Manage location delivery mode and allowed servers for a plan in Telegram bot."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+    prod_id = uuid.UUID(callback.data.split(":")[1])
+    product = await db_session.get(Product, prod_id)
+    if not product:
+        return await callback.answer("پلن مورد نظر یافت نشد.", show_alert=True)
+
+    loc_mode = getattr(product, "location_mode", "all") or ("all" if (not product.allowed_locations or product.allowed_locations == 'ALL') else "custom")
+
+    text = (
+        f"🌍 <b>تنظیمات نحوه تحویل و لوکیشن‌های پلن:</b>\n"
+        f"📦 <code>{product.name}</code>\n\n"
+        f"🔹 حالت فعلی: <b>{loc_mode.upper()}</b>\n"
+        f"🔹 لوکیشن‌های ثبت‌شده: <code>{product.allowed_locations or 'ALL'}</code>\n\n"
+        f"لطفاً یکی از ۳ حالت زیر را برای این تعرفه انتخاب کنید:\n\n"
+        f"۱. <b>🌐 همه لوکیشن‌ها (همزمان):</b> کاربر به تمامی سرورها دسترسی همزمان دارد و ربات بدون پرسش، کانفیگ تمامی سرورهای فعال را تحویل می‌دهد.\n\n"
+        f"۲. <b>⚙️ انتخاب اختصاصی (همزمان):</b> کاربر فقط به سرورهای مشخص‌شده توسط ادمین دسترسی همزمان دارد و ربات بدون پرسش، همان سرورها را تحویل می‌دهد.\n\n"
+        f"۳. <b>🎯 به انتخاب خریدار (تک‌لوکیشن):</b> اشتراک تک‌سروره است و ربات موقع خرید به خریدار اجازه می‌دهد یکی از لوکیشن‌ها را انتخاب کند."
+    )
+
+    servers_res = await db_session.execute(select(Server).where(Server.is_active.is_(True)))
+    servers = list(servers_res.scalars().all())
+
+    kb_rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{'✅ ' if loc_mode == 'all' else ''}🌐 همه لوکیشن‌ها (همزمان - بدون پرسش)",
+                callback_data=f"admin_set_loc_mode:{product.id}:all"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅ ' if loc_mode == 'custom' else ''}⚙️ انتخاب اختصاصی (همزمان - بدون پرسش)",
+                callback_data=f"admin_set_loc_mode:{product.id}:custom"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=f"{'✅ ' if loc_mode == 'user_choice' else ''}🎯 به انتخاب خریدار (تک‌لوکیشن با پرسش)",
+                callback_data=f"admin_set_loc_mode:{product.id}:user_choice"
+            )
+        ],
+    ]
+
+    if loc_mode in ("custom", "user_choice") and servers:
+        kb_rows.append([InlineKeyboardButton(text="📋 سرورها و لوکیشن‌های مجاز این پلن:", callback_data="noop")])
+        cur_locs = [l.strip().upper() for l in (product.allowed_locations or "").split(",") if l.strip()]
+        for s in servers:
+            code = (s.location_code or s.name or "SERVER").upper()
+            flag = getattr(s, "flag_emoji", getattr(s, "flag", "🌍"))
+            name = getattr(s, "location_name", getattr(s, "country_name", getattr(s, "name", code)))
+            is_checked = (code in cur_locs) or (product.allowed_locations == "ALL" and loc_mode == "user_choice")
+            mark = "✅" if is_checked else "❌"
+            kb_rows.append([
+                InlineKeyboardButton(
+                    text=f"{mark} {flag} {name} ({code})",
+                    callback_data=f"admin_toggle_prod_loc:{product.id}:{code}"
+                )
+            ])
+
+    kb_rows.append([InlineKeyboardButton(text="🔙 بازگشت به مشخصات پلن", callback_data=f"admin_prod_detail:{product.id}")])
+    try:
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows), parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_set_loc_mode:"))
+async def admin_set_product_location_mode(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Switch location mode for a product (all, custom, user_choice)."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+    parts = callback.data.split(":")
+    prod_id = uuid.UUID(parts[1])
+    mode = parts[2].lower()
+    product = await db_session.get(Product, prod_id)
+    if not product:
+        return await callback.answer("پلن یافت نشد.", show_alert=True)
+
+    product.location_mode = mode
+    if mode == "all":
+        product.allowed_locations = "ALL"
+    elif mode == "custom" and (not product.allowed_locations or product.allowed_locations == "ALL"):
+        # Select first available server as initial custom location
+        srv = (await db_session.execute(select(Server).where(Server.is_active.is_(True)))).scalars().first()
+        if srv and srv.location_code:
+            product.allowed_locations = srv.location_code.upper()
+    await db_session.commit()
+
+    label = "همه لوکیشن‌ها (همزمان)" if mode == "all" else ("انتخاب اختصاصی" if mode == "custom" else "به انتخاب خریدار")
+    await callback.answer(f"نحوه تحویل پلن به «{label}» تغییر یافت.", show_alert=False)
+    await view_admin_product_location_menu(callback, db_user, db_session)
+
+
+@router.callback_query(F.data.startswith("admin_toggle_prod_loc:"))
+async def admin_toggle_product_location_item(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Toggle a server location in product allowed_locations."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+    parts = callback.data.split(":")
+    prod_id = uuid.UUID(parts[1])
+    code = parts[2].strip().upper()
+    product = await db_session.get(Product, prod_id)
+    if not product:
+        return await callback.answer("پلن یافت نشد.", show_alert=True)
+
+    raw = product.allowed_locations or ""
+    if raw.strip().upper() == "ALL":
+        # Expand ALL into all servers, then toggle the clicked one off
+        all_srvs = (await db_session.execute(select(Server).where(Server.is_active.is_(True)))).scalars().all()
+        cur_locs = [s.location_code.upper() for s in all_srvs if s.location_code]
+    else:
+        cur_locs = [l.strip().upper() for l in raw.split(",") if l.strip()]
+
+    if code in cur_locs:
+        cur_locs.remove(code)
+    else:
+        cur_locs.append(code)
+
+    if not cur_locs:
+        product.allowed_locations = "ALL" if product.location_mode == "user_choice" else code
+    else:
+        product.allowed_locations = ",".join(sorted(set(cur_locs)))
+
+    await db_session.commit()
+    await callback.answer("لوکیشن‌های پلن بروزرسانی شدند.")
+    await view_admin_product_location_menu(callback, db_user, db_session)
 
 
 @router.callback_query(F.data.startswith("admin_toggle_prod:"))

@@ -91,7 +91,12 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         await callback.answer("پلن مورد نظر یافت نشد.", show_alert=True)
         return
 
-    # If product traffic is 0 -> Unlimited plan with multi-location access
+    loc_mode = getattr(product, "location_mode", None)
+
+    import html
+    p_name = html.escape(product.name)
+
+    # Case 1: Unlimited plan (traffic_bytes == 0) -> Multi-location across all allowed
     if product.traffic_bytes == 0:
         allowed_locs = product.allowed_locations or "ALL"
         await state.update_data(location_code=allowed_locs)
@@ -102,8 +107,6 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
                 [InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_action")],
             ]
         )
-        import html
-        p_name = html.escape(product.name)
         await callback.message.edit_text(
             f"✨ <b>بسته نامحدود «{p_name}» انتخاب شد.</b>\n\n"
             f"🌐 <b>این اشتراک شامل دسترسی همزمان به تمامی لوکیشن‌های مجاز این پلن می‌باشد</b> و نیازی به انتخاب تک‌لوکیشن ندارد.\n\n"
@@ -114,7 +117,31 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         await callback.answer()
         return
 
-    # If product has traffic limit (> 0) -> Customer chooses 1 location
+    # Case 2: Explicit multi-location plan configured by admin (all or custom with 2+ locations)
+    if loc_mode in ("all", "custom"):
+        allowed_list = [loc.strip() for loc in (product.allowed_locations or "").split(",") if loc.strip() and loc.strip().upper() != "ALL"]
+        if len(allowed_list) != 1:
+            allowed_locs = product.allowed_locations or "ALL"
+            await state.update_data(location_code=allowed_locs)
+            await state.set_state(PurchaseOrderState.entering_coupon)
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text="⏩ رد شدن (بدون کد تخفیف)", callback_data="skip_coupon")],
+                    [InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_action")],
+                ]
+            )
+            loc_desc = "تمامی لوکیشن‌های فعال سرورها" if (not product.allowed_locations or product.allowed_locations.strip().upper() == "ALL") else "تمامی لوکیشن‌های اختصاصی این پلن"
+            await callback.message.edit_text(
+                f"✨ <b>بسته «{p_name}» انتخاب شد.</b>\n\n"
+                f"🌐 <b>این اشتراک شامل دسترسی همزمان به {loc_desc} می‌باشد</b> و نیازی به انتخاب تک‌لوکیشن ندارد.\n\n"
+                f"🎁 <b>آیا کد تخفیف دارید؟</b>\nاگر کد تخفیف دارید آن را تایپ و ارسال نمایید، در غیر این صورت دکمه «رد شدن» را لمس کنید:",
+                reply_markup=kb,
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
+    # Case 3: Single location plan or Customer chooses 1 location (user_choice or legacy volume plan)
     servers_res = await db_session.execute(
         select(Server).where(Server.is_active.is_(True))
     )
@@ -136,7 +163,7 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         if filtered_servers:
             servers = filtered_servers
 
-    # Auto-assign location if product specifies an inbound/single location or only 1 server available
+    # Auto-assign location if only 1 server available in the allowed list
     auto_loc = None
     if product.allowed_locations and product.allowed_locations.strip().upper() != "ALL":
         allowed_list = [loc.strip() for loc in product.allowed_locations.split(",") if loc.strip()]
@@ -155,9 +182,6 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
                 [InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_action")],
             ]
         )
-        import html
-        p_name = html.escape(product.name)
-
         loc_label = auto_loc
         if servers:
             for s in servers:
@@ -189,6 +213,8 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         reply_markup=get_locations_keyboard(servers),
         parse_mode="HTML",
     )
+    await callback.answer()
+    await callback.answer()
     await callback.answer()
 
 

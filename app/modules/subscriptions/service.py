@@ -108,8 +108,16 @@ class SubscriptionService:
                 subId=sub_id,
             )
 
-            # --- Case 1: Unlimited Traffic Plan (traffic_bytes == 0) -> Provision on ALL allowed inbounds ---
-            if product.traffic_bytes == 0:
+            # --- Case 1: Multi-Location Plan (all or custom) -> Provision on ALL allowed inbounds ---
+            loc_mode = getattr(product, "location_mode", None)
+            if loc_mode == "user_choice":
+                is_multi = False
+            elif loc_mode in ("all", "custom"):
+                is_multi = True
+            else:
+                is_multi = (product.traffic_bytes == 0) or (loc and (loc.upper() == "ALL" or "," in loc))
+
+            if is_multi:
                 from app.modules.servers.allocation import inbound_matches_location
 
                 inb_query = (
@@ -181,7 +189,7 @@ class SubscriptionService:
                             wg_spec = WireGuardClientSpec(
                                 id=client_uuid,
                                 email=client_email,
-                                totalGB=0,
+                                totalGB=product.traffic_bytes,
                                 expiryTime=expiry_ms,
                                 enable=True,
                                 tgId=tg_id,
@@ -193,7 +201,7 @@ class SubscriptionService:
                             wg_spec = WireGuardClientSpec(
                                 id=client_uuid,
                                 email=client_email,
-                                totalGB=0,
+                                totalGB=product.traffic_bytes,
                                 expiryTime=expiry_ms,
                                 enable=True,
                                 tgId=tg_id,
@@ -206,7 +214,7 @@ class SubscriptionService:
                                 id=client_uuid,
                                 username=client_email.split("@")[0],
                                 email=client_email,
-                                totalGB=0,
+                                totalGB=product.traffic_bytes,
                                 expiryTime=expiry_ms,
                                 enable=True,
                                 subId=sub_id,
@@ -273,7 +281,7 @@ class SubscriptionService:
                     client_email=client_email,
                     protocol=protocol,
                     subscription_token=sub_id,
-                    traffic_limit_bytes=0,
+                    traffic_limit_bytes=product.traffic_bytes,
                     traffic_used_bytes=0,
                     expires_at=expiry_dt,
                     status=SubscriptionStatus.ACTIVE,
