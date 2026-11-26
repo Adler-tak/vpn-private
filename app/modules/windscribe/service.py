@@ -37,7 +37,8 @@ STATIC_CLIENT_SECRET = "952b4412f002315aa50751032fcaab03"
 WINDSCRIBE_SESSION_URL = "https://api.windscribe.com/Session"
 WINDSCRIBE_SERVERLIST_URL = "https://assets.windscribe.com/serverlist/mob-v2/1"
 DEFAULT_WG_PORT = 443
-DEFAULT_WG_ADDRESS = "100.64.0.2/32"
+DEFAULT_WG_ADDRESS = ["100.79.238.251/32", "fd54:4::6f16:8109:bd6d:60d8/128"]
+DEFAULT_REMOTE_DNS = ["10.255.255.3"]
 
 TARGET_BALANCERS = [
     "DE", "US-BL", "NL", "FR", "ITALY", "UK", "SE", "NO", "PL", "DK", "TR",
@@ -139,11 +140,14 @@ class WindscribeSyncService:
         with cls._lock:
             st = dict(cls._status)
         u, _, tok = cls.get_credentials()
-        sk, addr, pub, _ = cls.get_wireguard_keys()
+        sk, addr, pub, psk, dns = cls.get_wireguard_keys()
         st["configured_username"] = u or ""
         st["has_session"] = bool(tok)
-        st["has_wireguard_keys"] = bool(sk and pub)
-        st["wireguard_address"] = addr or ""
+        st["has_wireguard_keys"] = bool(sk and (pub or psk))
+        st["wireguard_address"] = ", ".join(addr) if isinstance(addr, list) else (addr or "")
+        st["wireguard_dns"] = ", ".join(dns) if isinstance(dns, list) else (dns or "")
+        st["wireguard_secret_key_preview"] = (sk[:6] + "..." + sk[-4:]) if sk and len(sk) > 10 else ""
+        st["wireguard_has_preshared_key"] = bool(psk)
         return st
 
     @classmethod
@@ -240,82 +244,330 @@ class WindscribeSyncService:
             logger.warning(f"Could not persist Windscribe credentials to .env: {e}")
 
     @classmethod
-    def get_wireguard_keys(cls) -> Tuple[str, str, str, str]:
+    def parse_wireguard_config(cls, raw_text: str) -> Dict[str, Any]:
         """
-        Retrieves or initializes WireGuard keys:
-        Returns (secret_key, address, server_pubkey, preshared_key).
-        Auto-generates x25519 secret_key and saves to .env if not found.
+        Parses raw WireGuard config in various formats:
+        1. Standard .conf (INI-style with [Interface] and [Peer])
+        2. JSON format (Xray outbound or settings object)
+        3. Plain KEY=VALUE format
+        """
+        import re
+        result = {
+            "secret_key": "",
+            "address": [],
+            "remote_dns": ["10.255.255.3"],
+            "preshared_key": "",
+            "public_key": "",
+            "endpoint": "",
+        }
+        cleaned = str(raw_text).strip()
+        if (cleaned.startswith("{") and cleaned.endswith("}")) or ('"settings"' in cleaned):
+            try:
+                start = cleaned.find("{")
+                end = cleaned.rfind("}") + 1
+                data = json.loads(cleaned[start:end])
+                settings = data.get("settings", data)
+                result["secret_key"] = settings.get("secretKey", "")
+                addr = settings.get("address", [])
+                result["address"] = (
+                    [a.strip() for a in addr.split(",") if a.strip()]
+                    if isinstance(addr, str)
+                    else [str(a).strip() for a in addr if str(a).strip()]
+                )
+                dns = settings.get("remoteDNS", settings.get("dns", []))
+                if dns:
+                    result["remote_dns"] = (
+                        [d.strip() for d in dns.split(",") if d.strip()]
+                        if isinstance(dns, str)
+                        else [str(d).strip() for d in dns if str(d).strip()]
+                    )
+                peers = settings.get("peers", [])
+                if peers and isinstance(peers, list):
+                    p0 = peers[0]
+                    result["public_key"] = p0.get("publicKey", "")
+                    result["preshared_key"] = p0.get("preSharedKey", "")
+                    result["endpoint"] = p0.get("endpoint", "")
+                if result["secret_key"]:
+                    return result
+            except Exception as e:
+                logger.debug(f"JSON parsing failed for WG config: {e}")
+
+        priv_m = re.search(r"(?:PrivateKey|secretKey|private_key)\s*[:=]\s*[\"']?([A-Za-z0-9+/=]{30,})[\"']?", cleaned, re.IGNORECASE)
+        if priv_m:
+            result["secret_key"] = priv_m.group(1).strip()
+
+        addr_m = re.search(r"(?:Address|address)\s*[:=]\s*([^\r\n]+)", cleaned, re.IGNORECASE)
+        if addr_m:
+            result["address"] = [
+                a.strip().strip("\"'")
+                for a in addr_m.group(1).strip().strip("\"'[]").split(",")
+                if a.strip()
+            ]
+
+        dns_m = re.search(r"(?:DNS|remoteDNS|dns)\s*[:=]\s*([^\r\n]+)", cleaned, re.IGNORECASE)
+        if dns_m:
+            result["remote_dns"] = [
+                d.strip().strip("\"'")
+                for d in dns_m.group(1).strip().strip("\"'[]").split(",")
+                if d.strip()
+            ]
+
+        psk_m = re.search(r"(?:PresharedKey|preSharedKey|preshared_key)\s*[:=]\s*[\"']?([A-Za-z0-9+/=]{30,})[\"']?", cleaned, re.IGNORECASE)
+        if psk_m:
+            result["preshared_key"] = psk_m.group(1).strip()
+
+        pub_m = re.search(r"(?:PublicKey|publicKey|public_key)\s*[:=]\s*[\"']?([A-Za-z0-9+/=]{30,})[\"']?", cleaned, re.IGNORECASE)
+        if pub_m:
+            result["public_key"] = pub_m.group(1).strip()
+
+        ep_m = re.search(r"(?:Endpoint|endpoint)\s*[:=]\s*[\"']?([A-Za-z0-9.\-_]+:\d+)[\"']?", cleaned, re.IGNORECASE)
+        if ep_m:
+            result["endpoint"] = ep_m.group(1).strip()
+
+        return result
+
+    @classmethod
+    def save_wireguard_keys(
+        cls,
+        secret_key: str,
+        address: Any,
+        preshared_key: str = "",
+        remote_dns: Any = None,
+        server_pubkey: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Saves WireGuard keys both in the database (system_settings table)
+        and into .env / live config.
+        """
+        secret_key = str(secret_key).strip()
+        preshared_key = str(preshared_key).strip()
+        server_pubkey = str(server_pubkey).strip()
+
+        if isinstance(address, list):
+            address_str = ", ".join(str(a).strip() for a in address if str(a).strip())
+        else:
+            address_str = str(address).strip()
+
+        if remote_dns is None:
+            dns_str = "10.255.255.3"
+        elif isinstance(remote_dns, list):
+            dns_str = ", ".join(str(d).strip() for d in remote_dns if str(d).strip())
+        else:
+            dns_str = str(remote_dns).strip()
+
+        # 1. Save to Database system_settings
+        try:
+            from app.services.settings_service import SettingsService
+            SettingsService.set_value_sync("WINDSCRIBE_PRIVATE_KEY", secret_key, category="windscribe", description="کلید اختصاصی WireGuard اکانت Windscribe")
+            SettingsService.set_value_sync("WINDSCRIBE_ADDRESS", address_str, category="windscribe", description="آدرس‌های IP اختصاصی WireGuard اکانت Windscribe")
+            SettingsService.set_value_sync("WINDSCRIBE_REMOTE_DNS", dns_str, category="windscribe", description="دی‌ان‌اس اختصاصی WireGuard اکانت Windscribe")
+            SettingsService.set_value_sync("WINDSCRIBE_PRESHARED_KEY", preshared_key, category="windscribe", description="رمز اشتراکی WireGuard اکانت Windscribe")
+            if server_pubkey:
+                SettingsService.set_value_sync("WINDSCRIBE_PUBLIC_KEY", server_pubkey, category="windscribe", description="کلید عمومی سرور WireGuard Windscribe")
+        except Exception as db_err:
+            logger.warning(f"Could not persist Windscribe WireGuard keys to DB: {db_err}")
+
+        # 2. Save to .env and runtime settings
+        try:
+            from app.core.config import settings, update_env_variable
+            update_env_variable("WINDSCRIBE_PRIVATE_KEY", secret_key)
+            setattr(settings, "WINDSCRIBE_PRIVATE_KEY", secret_key)
+            update_env_variable("WINDSCRIBE_ADDRESS", address_str)
+            setattr(settings, "WINDSCRIBE_ADDRESS", address_str)
+            update_env_variable("WINDSCRIBE_REMOTE_DNS", dns_str)
+            setattr(settings, "WINDSCRIBE_REMOTE_DNS", dns_str)
+            update_env_variable("WINDSCRIBE_PRESHARED_KEY", preshared_key)
+            setattr(settings, "WINDSCRIBE_PRESHARED_KEY", preshared_key)
+            if server_pubkey:
+                update_env_variable("WINDSCRIBE_PUBLIC_KEY", server_pubkey)
+                setattr(settings, "WINDSCRIBE_PUBLIC_KEY", server_pubkey)
+        except Exception as env_err:
+            logger.warning(f"Could not persist Windscribe WireGuard keys to .env: {env_err}")
+
+        return {
+            "success": True,
+            "secret_key_preview": (secret_key[:6] + "..." + secret_key[-4:]) if len(secret_key) > 10 else secret_key,
+            "address": address_str,
+            "remote_dns": dns_str,
+            "has_preshared_key": bool(preshared_key),
+            "server_pubkey": server_pubkey,
+        }
+
+    @classmethod
+    def import_wireguard_config(cls, raw_text: str) -> Dict[str, Any]:
+        """
+        Parses and imports a WireGuard config into database and .env.
+        """
+        parsed = cls.parse_wireguard_config(raw_text)
+        if not parsed.get("secret_key"):
+            return {
+                "success": False,
+                "error": "کلید خصوصی WireGuard (PrivateKey/secretKey) در متن وارد شده یافت نشد."
+            }
+
+        addr = parsed.get("address") or DEFAULT_WG_ADDRESS
+        dns = parsed.get("remote_dns") or DEFAULT_REMOTE_DNS
+        psk = parsed.get("preshared_key", "")
+        pub = parsed.get("public_key", "")
+
+        saved = cls.save_wireguard_keys(
+            secret_key=parsed["secret_key"],
+            address=addr,
+            preshared_key=psk,
+            remote_dns=dns,
+            server_pubkey=pub
+        )
+        return {
+            "success": True,
+            "message": "کانفیگ WireGuard وینداسکرایب با موفقیت در دیتابیس و تنظیمات ذخیره شد.",
+            "data": saved
+        }
+
+    @classmethod
+    def auto_detect_wireguard_keys(cls) -> Dict[str, Any]:
+        """
+        Scans existing Xray outbounds for active Windscribe WireGuard configurations
+        (such as WG-SW-GEMINI or whiskergalaxy.com endpoints), extracts valid credentials,
+        and persists them into the database and .env.
+        """
+        try:
+            from app.modules.xui_backup.service import fetch_xray_config_via_api
+            cfg, _ = fetch_xray_config_via_api()
+            if not isinstance(cfg, dict):
+                return {"success": False, "error": "دسترسی به تنظیمات 3X-UI برقرار نشد."}
+
+            outbounds = cfg.get("outbounds", [])
+            # Priority: 1. Contains whiskergalaxy.com or WG- 2. Any wd- outbound with non-default key
+            candidates = []
+            for o in outbounds:
+                if o.get("protocol") == "wireguard":
+                    tag = str(o.get("tag", ""))
+                    settings = o.get("settings", {})
+                    peers = settings.get("peers", [])
+                    endpoint = peers[0].get("endpoint", "") if peers else ""
+                    is_whisker = "whiskergalaxy.com" in endpoint or "whiskergalaxy.com" in str(o.get("windscribeHostname", ""))
+                    is_wg_tag = tag.startswith("WG-") or "GEMINI" in tag
+                    candidates.append((is_whisker, is_wg_tag, o))
+
+            # Sort so whiskergalaxy and WG- tags come first
+            candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+
+            for _, _, o in candidates:
+                settings = o.get("settings", {})
+                sk = settings.get("secretKey", "")
+                if sk and len(sk) >= 30:
+                    addr = settings.get("address", [])
+                    dns = settings.get("remoteDNS", ["10.255.255.3"])
+                    peers = settings.get("peers", [])
+                    psk = peers[0].get("preSharedKey", "") if peers else ""
+                    pub = peers[0].get("publicKey", "") if peers else ""
+
+                    saved = cls.save_wireguard_keys(
+                        secret_key=sk,
+                        address=addr or DEFAULT_WG_ADDRESS,
+                        preshared_key=psk,
+                        remote_dns=dns or DEFAULT_REMOTE_DNS,
+                        server_pubkey=pub
+                    )
+                    return {
+                        "success": True,
+                        "source_tag": o.get("tag"),
+                        "message": f"کلیدهای معتبر از اوت‌باند '{o.get('tag')}' شناسایی و در دیتابیس ثبت شد.",
+                        "data": saved
+                    }
+
+            return {"success": False, "error": "هیچ اوت‌باند فعالی با کلیدهای معتبر وینداسکرایب یافت نشد."}
+        except Exception as e:
+            logger.error(f"Auto-detect failed: {e}")
+            return {"success": False, "error": f"خطا در بررسی خودکار سرور: {e}"}
+
+    @classmethod
+    def get_wireguard_keys(cls) -> Tuple[str, List[str], str, str, List[str]]:
+        """
+        Retrieves WireGuard keys prioritizing:
+        1. Database (system_settings table)
+        2. Runtime live environment / settings
+        3. Auto-detection from existing server outbounds (e.g. WG-SW-GEMINI)
+        Returns: (secret_key, address_list, server_pubkey, preshared_key, remote_dns_list)
         """
         secret_key = ""
-        address = ""
+        address_raw = ""
         server_pubkey = ""
         preshared_key = ""
+        remote_dns_raw = ""
 
+        # 1. Try loading from Database (system_settings)
+        try:
+            from app.services.settings_service import SettingsService
+            secret_key = SettingsService.get_str("WINDSCRIBE_PRIVATE_KEY", "")
+            address_raw = SettingsService.get_str("WINDSCRIBE_ADDRESS", "")
+            server_pubkey = SettingsService.get_str("WINDSCRIBE_PUBLIC_KEY", "")
+            preshared_key = SettingsService.get_str("WINDSCRIBE_PRESHARED_KEY", "")
+            remote_dns_raw = SettingsService.get_str("WINDSCRIBE_REMOTE_DNS", "")
+        except Exception:
+            pass
+
+        # 2. Try loading from live config / .env
         try:
             from app.core.config import settings, get_live_env
-            secret_key = getattr(settings, "WINDSCRIBE_PRIVATE_KEY", "") or get_live_env("WINDSCRIBE_PRIVATE_KEY", "")
-            address = getattr(settings, "WINDSCRIBE_ADDRESS", "") or get_live_env("WINDSCRIBE_ADDRESS", "")
-            server_pubkey = getattr(settings, "WINDSCRIBE_PUBLIC_KEY", "") or get_live_env("WINDSCRIBE_PUBLIC_KEY", "")
-            preshared_key = getattr(settings, "WINDSCRIBE_PRESHARED_KEY", "") or get_live_env("WINDSCRIBE_PRESHARED_KEY", "")
+            if not secret_key:
+                secret_key = getattr(settings, "WINDSCRIBE_PRIVATE_KEY", "") or get_live_env("WINDSCRIBE_PRIVATE_KEY", "")
+            if not address_raw:
+                address_raw = getattr(settings, "WINDSCRIBE_ADDRESS", "") or get_live_env("WINDSCRIBE_ADDRESS", "")
+            if not server_pubkey:
+                server_pubkey = getattr(settings, "WINDSCRIBE_PUBLIC_KEY", "") or get_live_env("WINDSCRIBE_PUBLIC_KEY", "")
+            if not preshared_key:
+                preshared_key = getattr(settings, "WINDSCRIBE_PRESHARED_KEY", "") or get_live_env("WINDSCRIBE_PRESHARED_KEY", "")
+            if not remote_dns_raw:
+                remote_dns_raw = getattr(settings, "WINDSCRIBE_REMOTE_DNS", "") or get_live_env("WINDSCRIBE_REMOTE_DNS", "")
         except Exception:
             pass
 
         if not secret_key:
             secret_key = os.getenv("WINDSCRIBE_PRIVATE_KEY", "")
-        if not address:
-            address = os.getenv("WINDSCRIBE_ADDRESS", "")
+        if not address_raw:
+            address_raw = os.getenv("WINDSCRIBE_ADDRESS", "")
         if not server_pubkey:
             server_pubkey = os.getenv("WINDSCRIBE_PUBLIC_KEY", "")
         if not preshared_key:
             preshared_key = os.getenv("WINDSCRIBE_PRESHARED_KEY", "")
+        if not remote_dns_raw:
+            remote_dns_raw = os.getenv("WINDSCRIBE_REMOTE_DNS", "")
 
-        # Try to extract keys from existing wd- outbounds via 3X-UI API if still missing
-        if not secret_key or not server_pubkey or not address:
+        # 3. If keys still missing, try auto-detect from existing Xray outbounds
+        if not secret_key or not preshared_key:
             try:
-                from app.modules.xui_backup.service import fetch_xray_config_via_api
-                cfg, _ = fetch_xray_config_via_api()
-                if isinstance(cfg, dict):
-                    for o in cfg.get("outbounds", []):
-                        if str(o.get("tag", "")).startswith("wd-"):
-                            settings_dict = o.get("settings", {})
-                            if not secret_key and settings_dict.get("secretKey"):
-                                secret_key = settings_dict.get("secretKey")
-                            if not address and settings_dict.get("address"):
-                                addr_val = settings_dict.get("address")
-                                address = addr_val[0] if isinstance(addr_val, list) and addr_val else str(addr_val)
-                            peers = settings_dict.get("peers", [])
-                            if peers and isinstance(peers, list):
-                                peer = peers[0]
-                                if not server_pubkey and peer.get("publicKey"):
-                                    server_pubkey = peer.get("publicKey")
-                                if not preshared_key and peer.get("preSharedKey"):
-                                    preshared_key = peer.get("preSharedKey")
-                            if secret_key and server_pubkey:
-                                break
-            except Exception as e:
-                logger.warning(f"Could not load WireGuard keys from Xray config: {e}")
-
-        # If secret_key still not present, generate a new x25519 keypair
-        if not secret_key:
-            priv = x25519.X25519PrivateKey.generate()
-            secret_key = base64.b64encode(priv.private_bytes(
-                encoding=serialization.Encoding.Raw,
-                format=serialization.PrivateFormat.Raw,
-                encryption_algorithm=serialization.NoEncryption()
-            )).decode("utf-8")
-            try:
-                from app.core.config import update_env_variable
-                update_env_variable("WINDSCRIBE_PRIVATE_KEY", secret_key)
+                det = cls.auto_detect_wireguard_keys()
+                if det.get("success"):
+                    from app.services.settings_service import SettingsService
+                    secret_key = SettingsService.get_str("WINDSCRIBE_PRIVATE_KEY", secret_key)
+                    address_raw = SettingsService.get_str("WINDSCRIBE_ADDRESS", address_raw)
+                    server_pubkey = SettingsService.get_str("WINDSCRIBE_PUBLIC_KEY", server_pubkey)
+                    preshared_key = SettingsService.get_str("WINDSCRIBE_PRESHARED_KEY", preshared_key)
+                    remote_dns_raw = SettingsService.get_str("WINDSCRIBE_REMOTE_DNS", remote_dns_raw)
             except Exception:
                 pass
 
-        if not address:
-            address = DEFAULT_WG_ADDRESS
+        # Format address as list
+        if isinstance(address_raw, list):
+            address_list = [str(a).strip() for a in address_raw if str(a).strip()]
+        elif address_raw:
+            address_list = [a.strip() for a in str(address_raw).split(",") if a.strip()]
+        else:
+            address_list = list(DEFAULT_WG_ADDRESS) if isinstance(DEFAULT_WG_ADDRESS, list) else [DEFAULT_WG_ADDRESS]
+
+        # Format remote_dns as list
+        if isinstance(remote_dns_raw, list):
+            remote_dns_list = [str(d).strip() for d in remote_dns_raw if str(d).strip()]
+        elif remote_dns_raw:
+            remote_dns_list = [d.strip() for d in str(remote_dns_raw).split(",") if d.strip()]
+        else:
+            remote_dns_list = list(DEFAULT_REMOTE_DNS) if isinstance(DEFAULT_REMOTE_DNS, list) else [DEFAULT_REMOTE_DNS]
 
         if not server_pubkey:
             server_pubkey = "7B13mR0g2yP3V1s0vK1x5Z6+N2qE8uT7mJ0lX4oY8kE="
 
-        return secret_key, address, server_pubkey, preshared_key
+        return secret_key, address_list, server_pubkey, preshared_key, remote_dns_list
 
     @classmethod
     def login(cls, username: str, password: str, otp_code: Optional[str] = None) -> Dict[str, Any]:
@@ -644,7 +896,7 @@ class WindscribeSyncService:
         7. Restarts container 3x
         """
         # WireGuard keys resolution
-        secret_key, address, default_server_pubkey, preshared_key = cls.get_wireguard_keys()
+        secret_key, address_list, default_server_pubkey, preshared_key, remote_dns_list = cls.get_wireguard_keys()
 
         # If secret_key is not configured, check if we can login to obtain session/keys
         if not secret_key:
@@ -691,7 +943,7 @@ class WindscribeSyncService:
             }
 
         # WireGuard keys resolution
-        secret_key, address, default_server_pubkey, preshared_key = cls.get_wireguard_keys()
+        secret_key, address_list, default_server_pubkey, preshared_key, remote_dns_list = cls.get_wireguard_keys()
 
         # Existing outbounds handling: Remove ONLY wd- outbounds, preserving pia- and manual outbounds
         existing_outbounds = cfg.get("outbounds", [])
@@ -724,15 +976,16 @@ class WindscribeSyncService:
                 "protocol": "wireguard",
                 "settings": {
                     "secretKey": secret_key,
-                    "address": [address] if isinstance(address, str) else address,
+                    "address": address_list,
+                    "remoteDNS": remote_dns_list or ["10.255.255.3"],
                     "mtu": 1420,
-                    "noKernelTun": True,
+                    "noKernelTun": False,
                     "peers": [
                         {
                             "publicKey": node_pubkey,
                             "endpoint": endpoint,
                             "preSharedKey": preshared_key,
-                            "allowedIPs": ["0.0.0.0/0"],
+                            "allowedIPs": ["0.0.0.0/0", "::/0"],
                             "keepAlive": 25,
                         }
                     ],

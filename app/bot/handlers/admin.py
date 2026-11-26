@@ -1828,7 +1828,10 @@ async def list_admin_locations(callback: CallbackQuery, db_user: User, db_sessio
     )
 
     buttons = [
-        [InlineKeyboardButton(text="➕ افزودن لوکیشن جدید", callback_data="admin_add_loc_start")]
+        [
+            InlineKeyboardButton(text="➕ افزودن لوکیشن جدید", callback_data="admin_add_loc_start"),
+            InlineKeyboardButton(text="🌀 مدیریت وینداسکرایب (WD)", callback_data="admin_windscribe_menu"),
+        ]
     ]
 
     if not servers:
@@ -1847,6 +1850,144 @@ async def list_admin_locations(callback: CallbackQuery, db_user: User, db_sessio
     except Exception:
         await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin_windscribe_menu")
+async def admin_windscribe_menu_handler(callback: CallbackQuery, db_user: User, db_session: AsyncSession = None):
+    """Windscribe WireGuard management menu in Telegram bot."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    from app.modules.windscribe.service import WindscribeSyncService
+    st = WindscribeSyncService.get_status()
+
+    has_keys = st.get("has_wireguard_keys", False)
+    status_emoji = "🟢 فعال و ثبت شده در دیتابیس" if has_keys else "🔴 تنظیم نشده"
+    addr_str = st.get("wireguard_address") or "---"
+    dns_str = st.get("wireguard_dns") or "10.255.255.3"
+    sk_prev = st.get("wireguard_secret_key_preview") or "---"
+
+    text = (
+        "🌀 <b>مدیریت WireGuard سرویس Windscribe (لوکیشن‌های WD-):</b>\n\n"
+        f"🔹 <b>وضعیت کلیدها:</b> {status_emoji}\n"
+        f"🔹 <b>کلید اختصاصی:</b> <code>{sk_prev}</code>\n"
+        f"🔹 <b>آدرس IP اختصاصی:</b> <code>{addr_str}</code>\n"
+        f"🔹 <b>دی‌ان‌اس اختصاصی (DNS):</b> <code>{dns_str}</code>\n"
+        f"🔹 <b>رمز اشتراکی (PSK):</b> {'✅ دارد' if st.get('wireguard_has_preshared_key') else '❌ ندارد'}\n\n"
+        "💡 <i>با زدن دکمه «همگام‌سازی نودها»، لیست بیش از ۵۰ سرور فعال دنیا از وینداسکرایب دریافت و روی 3X-UI ست می‌شود.</i>"
+    )
+
+    buttons = [
+        [InlineKeyboardButton(text="📥 ارسال و ثبت کانفیگ WireGuard", callback_data="admin_ws_prompt_config")],
+        [InlineKeyboardButton(text="🔍 استخراج خودکار کلیدها از سرور", callback_data="admin_ws_autodetect")],
+        [InlineKeyboardButton(text="🔄 همگام‌سازی نودهای WD (بیش از ۵۰ سرور)", callback_data="admin_ws_trigger_sync")],
+        [InlineKeyboardButton(text="🔙 بازگشت به مدیریت لوکیشن‌ها", callback_data="admin_manage_locations")],
+    ]
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_ws_prompt_config")
+async def admin_ws_prompt_config_handler(callback: CallbackQuery, state: FSMContext, db_user: User):
+    """Prompt admin to send raw WireGuard config."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    await state.set_state(AdminState.waiting_for_ws_config)
+    text = (
+        "📥 <b>ارسال کانفیگ WireGuard وینداسکرایب:</b>\n\n"
+        "لطفاً متن فایل کانفیگ دریافتی از سایت Windscribe (فرمت <code>.conf</code> یا <code>JSON</code>) را در پاسخ به این پیام کپی و ارسال نمایید.\n\n"
+        "سیستم به صورت خودکار کلیدها، آدرس‌ها و DNS را استخراج و در دیتابیس ثبت می‌کند."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ انصراف", callback_data="admin_windscribe_menu")]
+    ])
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.message(AdminState.waiting_for_ws_config)
+async def process_admin_ws_config(message: Message, state: FSMContext, db_user: User):
+    """Process pasted WireGuard config text from admin."""
+    if not is_admin(db_user):
+        return
+    raw_text = (message.text or "").strip()
+    await state.clear()
+
+    from app.modules.windscribe.service import WindscribeSyncService
+    res = WindscribeSyncService.import_wireguard_config(raw_text)
+
+    if res.get("success"):
+        data = res.get("data", {})
+        text = (
+            "✅ <b>کانفیگ WireGuard با موفقیت در دیتابیس ذخیره شد!</b>\n\n"
+            f"🔹 <b>کلید اختصاصی:</b> <code>{data.get('secret_key_preview')}</code>\n"
+            f"🔹 <b>آدرس IP:</b> <code>{data.get('address')}</code>\n"
+            f"🔹 <b>دی‌ان‌اس:</b> <code>{data.get('remote_dns')}</code>\n"
+            f"🔹 <b>رمز اشتراکی (PSK):</b> {'✅ دارد' if data.get('has_preshared_key') else '❌ ندارد'}\n\n"
+            "اکنون می‌توانید دکمه «همگام‌سازی نودها» را بزنید تا بیش از ۵۰ سرور دنیا متصل شوند."
+        )
+        buttons = [
+            [InlineKeyboardButton(text="🔄 همگام‌سازی نودهای WD", callback_data="admin_ws_trigger_sync")],
+            [InlineKeyboardButton(text="🌀 منوی وینداسکرایب", callback_data="admin_windscribe_menu")]
+        ]
+    else:
+        text = f"❌ <b>خطا در ثبت کانفیگ:</b>\n{res.get('error', 'فرمت ورودی نامعتبر است.')}"
+        buttons = [
+            [InlineKeyboardButton(text="🔄 تلاش مجدد", callback_data="admin_ws_prompt_config")],
+            [InlineKeyboardButton(text="🔙 بازگشت به منوی وینداسکرایب", callback_data="admin_windscribe_menu")]
+        ]
+
+    await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+
+
+@router.callback_query(F.data == "admin_ws_autodetect")
+async def admin_ws_autodetect_handler(callback: CallbackQuery, db_user: User):
+    """Auto-detect WireGuard keys from existing server outbounds."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    await callback.answer("در حال جستجوی کلیدها روی سرور...", show_alert=False)
+    from app.modules.windscribe.service import WindscribeSyncService
+    res = WindscribeSyncService.auto_detect_wireguard_keys()
+
+    if res.get("success"):
+        await callback.message.answer(
+            f"✅ <b>{res.get('message')}</b>\n\n"
+            f"کلیدها با موفقیت در دیتابیس ثبت شدند و اکنون فعال هستند.",
+            parse_mode="HTML"
+        )
+    else:
+        await callback.message.answer(f"ℹ️ {res.get('error')}", parse_mode="HTML")
+
+    await admin_windscribe_menu_handler(callback, db_user, None)
+
+
+@router.callback_query(F.data == "admin_ws_trigger_sync")
+async def admin_ws_trigger_sync_handler(callback: CallbackQuery, db_user: User):
+    """Trigger background sync of Windscribe nodes from bot."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    await callback.answer("همگام‌سازی نودهای WD آغاز شد...", show_alert=False)
+    from app.modules.windscribe.service import WindscribeSyncService
+    res = WindscribeSyncService.start_background_sync()
+    msg = res.get("message") or ("همگام‌سازی نودهای WD در پس‌زمینه آغاز شد." if res.get("started") else res.get("error", "در حال انجام..."))
+    await callback.message.answer(
+        f"🔄 <b>{msg}</b>\n\n"
+        "پس از اتمام، نودها در 3X-UI بارگذاری و بلنسرها ری‌استارت می‌شوند.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🌀 بازگشت به منوی وینداسکرایب", callback_data="admin_windscribe_menu")]
+        ])
+    )
 
 
 @router.callback_query(F.data.startswith("admin_loc_detail:"))

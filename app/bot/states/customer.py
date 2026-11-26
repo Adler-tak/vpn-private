@@ -52,6 +52,7 @@ class AdminState(StatesGroup):
     loc_entering_host = State()
     editing_loc_name = State()
     editing_loc_host = State()
+    waiting_for_ws_config = State()
 
     # Admin Management States
     entering_new_admin_id = State()

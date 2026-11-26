@@ -238,7 +238,8 @@ class Settings(BaseSettings):
     WINDSCRIBE_PRIVATE_KEY: str = ""
     WINDSCRIBE_PUBLIC_KEY: str = ""
     WINDSCRIBE_PRESHARED_KEY: str = ""
-    WINDSCRIBE_ADDRESS: str = "100.64.0.2/32"
+    WINDSCRIBE_ADDRESS: str = "100.79.238.251/32, fd54:4::6f16:8109:bd6d:60d8/128"
+    WINDSCRIBE_REMOTE_DNS: str = "10.255.255.3"
 
     # =========================================================
     # DYNAMIC RUNTIME-SYNCED PROPERTIES ACROSS BOT & WEB PANEL

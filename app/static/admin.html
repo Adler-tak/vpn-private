@@ -1319,6 +1319,10 @@
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2 shrink-0">
+                <button id="btn-config-windscribe" onclick="openWindscribeConfigModal()" class="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 font-bold text-xs transition flex items-center gap-2 shadow-lg shadow-purple-950/30">
+                  <i class="bi bi-file-earmark-code text-base"></i>
+                  <span>📥 تنظیم کانفیگ WireGuard</span>
+                </button>
                 <button id="btn-login-windscribe" onclick="openWindscribeModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 font-bold text-xs transition flex items-center gap-2 shadow-lg shadow-emerald-950/30">
                   <i class="bi bi-key-fill text-base"></i>
                   <span>ورود / وضعیت اکانت</span>
@@ -4665,6 +4669,61 @@
         <button type="button" onclick="closeWindscribeModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition">
           انصراف / بستن
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Windscribe WireGuard Config Import & Auto-Detect -->
+  <div id="modal-windscribe-config" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="w-full max-w-lg p-6 rounded-2xl glass-card space-y-4 border border-purple-500/30 animate-in fade-in duration-200">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h4 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="bi bi-file-earmark-code text-purple-400"></i>
+          <span>تنظیم کانفیگ WireGuard وینداسکرایب (ذخیره در دیتابیس)</span>
+        </h4>
+        <button type="button" onclick="closeWindscribeConfigModal()" class="text-slate-400 hover:text-white transition">
+          <i class="bi bi-x-lg"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <p class="text-xs text-slate-300 leading-relaxed">
+          متن فایل کانفیگ وینداسکرایب (<code class="text-purple-300 font-mono">.conf</code> یا <code class="text-purple-300 font-mono">JSON</code>) دریافتی از سایت Windscribe را در کادر زیر پیست کنید:
+        </p>
+
+        <div>
+          <textarea id="ws-config-input" rows="7" dir="ltr" class="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-xs text-emerald-300 font-mono focus:outline-none focus:border-purple-500 transition" placeholder="[Interface]&#10;PrivateKey = cEfL845rcOBM8tdD3c+...&#10;Address = 100.79.238.251/32, fd54:4::.../128&#10;DNS = 10.255.255.3&#10;&#10;[Peer]&#10;PublicKey = ...&#10;PresharedKey = OJotyiYFyogAqjL7...&#10;Endpoint = arn-476-wg.whiskergalaxy.com:443"></textarea>
+        </div>
+
+        <!-- Current saved keys preview -->
+        <div id="ws-current-keys-box" class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-[11px] space-y-1.5">
+          <div class="flex items-center justify-between text-slate-400">
+            <span>وضعیت کلیدهای ذخیره شده:</span>
+            <span id="ws-status-badge" class="font-bold text-amber-400">در حال بررسی...</span>
+          </div>
+          <div class="text-slate-300 grid grid-cols-2 gap-1 font-mono text-[10px]">
+            <div>کلید اختصاصی: <span id="ws-sk-preview" class="text-purple-300">---</span></div>
+            <div>آدرس IP: <span id="ws-addr-preview" class="text-purple-300">---</span></div>
+            <div>دی‌ان‌اس: <span id="ws-dns-preview" class="text-purple-300">---</span></div>
+            <div>رمز اشتراکی (PSK): <span id="ws-psk-preview" class="text-purple-300">---</span></div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800">
+          <button type="button" onclick="autoDetectWindscribeKeys()" id="btn-ws-autodetect" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 text-xs font-bold transition flex items-center gap-1.5">
+            <i class="bi bi-magic"></i>
+            <span>استخراج خودکار از سرور</span>
+          </button>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeWindscribeConfigModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition">
+              انصراف
+            </button>
+            <button type="button" onclick="saveWindscribeWireguardConfig()" id="btn-ws-save-config" class="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-purple-600/30">
+              <i class="bi bi-save"></i>
+              <span>ذخیره در دیتابیس</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -8355,6 +8414,110 @@
         btn.disabled = false;
         if (icon) icon.classList.remove('animate-spin');
         if (text) text.innerText = 'همگام‌سازی فوری نودها';
+      }
+    }
+
+    // --- Windscribe WireGuard Config Management ---
+    async function openWindscribeConfigModal() {
+      openModal('modal-windscribe-config');
+      loadWindscribeSavedConfig();
+    }
+
+    function closeWindscribeConfigModal() {
+      closeModal('modal-windscribe-config');
+    }
+
+    async function loadWindscribeSavedConfig() {
+      try {
+        const res = await apiFetch('/windscribe/config', { method: 'GET' });
+        const badge = document.getElementById('ws-status-badge');
+        const skPreview = document.getElementById('ws-sk-preview');
+        const addrPreview = document.getElementById('ws-addr-preview');
+        const dnsPreview = document.getElementById('ws-dns-preview');
+        const pskPreview = document.getElementById('ws-psk-preview');
+
+        if (res.has_keys) {
+          if (badge) {
+            badge.innerText = 'فعال و ثبت شده در دیتابیس';
+            badge.className = 'font-bold text-emerald-400';
+          }
+          if (skPreview) skPreview.innerText = res.secret_key_preview || 'موجود';
+          if (addrPreview) addrPreview.innerText = (Array.isArray(res.address) ? res.address.join(', ') : res.address) || '100.x.x.x';
+          if (dnsPreview) dnsPreview.innerText = (Array.isArray(res.remote_dns) ? res.remote_dns.join(', ') : res.remote_dns) || '10.255.255.3';
+          if (pskPreview) pskPreview.innerText = res.has_preshared_key ? 'دارد' : 'ندارد';
+        } else {
+          if (badge) {
+            badge.innerText = 'تنظیم نشده (نیازمند کانفیگ)';
+            badge.className = 'font-bold text-amber-400';
+          }
+          if (skPreview) skPreview.innerText = 'ثبت نشده';
+          if (addrPreview) addrPreview.innerText = '---';
+          if (dnsPreview) dnsPreview.innerText = '---';
+          if (pskPreview) pskPreview.innerText = '---';
+        }
+      } catch (err) {
+        console.error('Failed to load windscribe config:', err);
+      }
+    }
+
+    async function saveWindscribeWireguardConfig() {
+      const input = document.getElementById('ws-config-input');
+      const val = input ? input.value.trim() : '';
+      if (!val) {
+        showToast('لطفاً متن کانفیگ WireGuard وینداسکرایب را وارد کنید.', 'warning');
+        return;
+      }
+      const btn = document.getElementById('btn-ws-save-config');
+      const origHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="inline-block animate-spin">⏳</span> در حال ذخیره...';
+      }
+      try {
+        const res = await apiFetch('/windscribe/import-config', {
+          method: 'POST',
+          body: JSON.stringify({ config_text: val })
+        });
+        if (res.success) {
+          showToast(res.message || 'کانفیگ با موفقیت در دیتابیس ذخیره شد.', 'success');
+          if (input) input.value = '';
+          await loadWindscribeSavedConfig();
+          setTimeout(() => closeWindscribeConfigModal(), 1200);
+        } else {
+          showToast(res.error || 'خطا در ذخیره کانفیگ', 'error');
+        }
+      } catch (err) {
+        showToast(err.message || 'خطا در ارتباط با سرور', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
+      }
+    }
+
+    async function autoDetectWindscribeKeys() {
+      const btn = document.getElementById('btn-ws-autodetect');
+      const origHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="inline-block animate-spin">⏳</span> در حال بررسی سرور...';
+      }
+      try {
+        const res = await apiFetch('/windscribe/auto-detect', { method: 'POST' });
+        if (res.success) {
+          showToast(res.message || 'کلیدها با موفقیت شناسایی و در دیتابیس ذخیره شدند.', 'success');
+          await loadWindscribeSavedConfig();
+        } else {
+          showToast(res.error || 'کانفیگ فعالی روی سرور یافت نشد.', 'info');
+        }
+      } catch (err) {
+        showToast(err.message || 'خطا در بررسی خودکار', 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHtml;
+        }
       }
     }
 

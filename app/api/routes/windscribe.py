@@ -25,6 +25,51 @@ class WindscribeVerify2FARequest(BaseModel):
     password: Optional[str] = Field(None, description="Windscribe password (optional if stored)")
 
 
+class WindscribeImportConfigRequest(BaseModel):
+    config_text: str = Field(..., description="WireGuard configuration in .conf, JSON, or key-value format")
+
+
+@router.post("/import-config")
+async def windscribe_import_config(
+    req: WindscribeImportConfigRequest,
+    admin: User = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """
+    Import and validate a Windscribe WireGuard config (.conf or JSON),
+    saving keys to the database and runtime configuration.
+    """
+    return WindscribeSyncService.import_wireguard_config(req.config_text)
+
+
+@router.post("/auto-detect")
+async def windscribe_auto_detect(
+    admin: User = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """
+    Auto-detect active Windscribe WireGuard keys from existing Xray configurations
+    (such as WG-SW-GEMINI) and persist to database.
+    """
+    return WindscribeSyncService.auto_detect_wireguard_keys()
+
+
+@router.get("/config")
+async def windscribe_get_config(
+    admin: User = Depends(get_current_admin),
+) -> Dict[str, Any]:
+    """
+    Get current configured WireGuard keys and network addresses.
+    """
+    sk, addr, pub, psk, dns = WindscribeSyncService.get_wireguard_keys()
+    return {
+        "has_keys": bool(sk and (pub or psk)),
+        "secret_key_preview": (sk[:6] + "..." + sk[-4:]) if sk and len(sk) > 10 else ("***" if sk else ""),
+        "address": addr,
+        "remote_dns": dns,
+        "has_preshared_key": bool(psk),
+        "server_pubkey": pub,
+    }
+
+
 @router.post("/login")
 async def windscribe_login(
     req: WindscribeLoginRequest,
