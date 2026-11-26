@@ -162,12 +162,16 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         if servers:
             for s in servers:
                 if s.location_code and s.location_code.upper() == auto_loc.upper():
-                    loc_label = f"{s.flag or '🌍'} {s.country_name or s.name or auto_loc}"
+                    flag_icon = getattr(s, "flag_emoji", getattr(s, "flag", "🌍"))
+                    loc_title = getattr(s, "location_name", getattr(s, "country_name", getattr(s, "name", auto_loc)))
+                    loc_label = f"{flag_icon} {loc_title}"
                     break
             else:
                 if len(servers) == 1:
                     s = servers[0]
-                    loc_label = f"{s.flag or '🌍'} {s.country_name or s.name or auto_loc}"
+                    flag_icon = getattr(s, "flag_emoji", getattr(s, "flag", "🌍"))
+                    loc_title = getattr(s, "location_name", getattr(s, "country_name", getattr(s, "name", auto_loc)))
+                    loc_label = f"{flag_icon} {loc_title}"
 
         await callback.message.edit_text(
             f"✨ <b>بسته «{p_name}» انتخاب شد.</b>\n"
