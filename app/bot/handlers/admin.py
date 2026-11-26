@@ -1007,18 +1007,26 @@ async def approve_payment_by_admin(
                 qr_buf = generate_qr_buffer(conn["subscription_url"])
                 qr_file = BufferedInputFile(qr_buf.getvalue(), filename="sub_qr.png")
 
-                customer_msg = (
-                    f"🎉 <b>پرداخت شما تایید شد و سرویس فعال گردید!</b>\n\n"
-                    f"🏷 <b>شناسه:</b> <code>{subscription.client_email}</code>\n"
-                    f"🌍 <b>لوکیشن:</b> {conn['flag']} <b>{conn['location']}</b>\n"
-                    f"📡 <b>پروتکل:</b> <b>{conn['protocol']}</b>\n\n"
-                    f"🔗 <b>لینک اشتراک هوشمند (Subscription URL):</b>\n"
-                    f"<code>{conn['subscription_url']}</code>\n\n"
-                    f"📱 <b>نرم‌افزار پیشنهادی جهت اتصال (Happ Proxy):</b>\n"
-                    f"🍏 <b>دانلود نسخه iOS (آیفون):</b> <a href=\"https://apps.apple.com/app/happ-proxy-utility/id6504287215\">دریافت از App Store</a>\n"
-                    f"🤖 <b>دانلود نسخه اندروید:</b> <a href=\"https://play.google.com/store/apps/details?id=com.happproxy\">دریافت از Google Play</a>\n\n"
-                    f"💡 <i>کافیست پس از نصب برنامه، لینک اشتراک هوشمند بالا را کپی کرده یا بارکد QR بالا را درون نرم‌افزار اسکن نمایید.</i>\n\n"
-                    f"🙏 از اعتماد شما به VPN Private سپاسگزاریم."
+                from app.modules.bot_texts.service import get_bot_text
+                from app.core.config import settings
+
+                support_u = getattr(settings, "SUPPORT_USERNAME", "VPNPrivateSupport").lstrip("@")
+                delivery_template = get_bot_text("order_approved_delivery")
+
+                class SafeDict(dict):
+                    def __missing__(self, key):
+                        return f"{{{key}}}"
+
+                customer_msg = delivery_template.format_map(
+                    SafeDict(
+                        client_email=subscription.client_email or "",
+                        location=conn.get("location", ""),
+                        flag=conn.get("flag", ""),
+                        protocol=conn.get("protocol", ""),
+                        subscription_url=conn.get("subscription_url", ""),
+                        support_username=support_u,
+                        remark=conn.get("remark", ""),
+                    )
                 )
                 try:
                     await bot.send_photo(

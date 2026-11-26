@@ -19,6 +19,7 @@ from app.integrations.xui.schemas import ClientSpec
 from app.core.constants import OrderStatus, SubscriptionStatus
 from app.core.security import generate_secure_uuid, generate_sub_id
 from app.core.exceptions import ProvisioningError, VPNPrivateError, OrderStateError
+from app.services.settings_service import SettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ class SubscriptionService:
                 tg_id = 0
             clean_tg = "".join(c for c in str(user.telegram_id or "0") if c.isalnum())
             email_tag = f"u{clean_tg}_{secrets.token_hex(3)}"
-            client_email = f"{email_tag}@vpnprivate"
+            email_suffix = await SettingsService.get_effective_email_suffix(self.session)
+            client_email = f"{email_tag}{email_suffix}"
 
             spec = ClientSpec(
                 id=client_uuid,
@@ -433,7 +435,8 @@ class SubscriptionService:
         clean_tg = "".join(c for c in str(user.telegram_id or "0") if c.isalnum())
         client_uuid = generate_secure_uuid()
         sub_id = generate_sub_id(16)
-        client_email = f"trial_{clean_tg}_{secrets.token_hex(2)}@vpnprivate"
+        email_suffix = await SettingsService.get_effective_email_suffix(self.session)
+        client_email = f"trial_{clean_tg}_{secrets.token_hex(2)}{email_suffix}"
 
         now = datetime.now(timezone.utc)
         traffic_bytes = settings.TRIAL_TRAFFIC_MB * 1024 * 1024
@@ -583,9 +586,10 @@ class SubscriptionService:
                 pass
 
         loc_code = server.location_code if server else "ALL"
+        config_prefix = await SettingsService.get_effective_config_title_prefix(self.session)
         inbound_dict = {
             "port": inbound.port if inbound else 443,
-            "remark": f"VPN-Private-{loc_code}",
+            "remark": f"{config_prefix}-{loc_code}",
             "stream_settings": inbound_stream,
             "settings": inbound_stream,
             "protocol": inbound.protocol if inbound else sub.protocol,
@@ -594,7 +598,7 @@ class SubscriptionService:
             "id": sub.client_uuid,
             "email": sub.client_email,
             "username": (sub.client_email or "user").split("@")[0],
-            "remark": f"VPN-Private-{loc_code}",
+            "remark": f"{config_prefix}-{loc_code}",
             "flow": "xtls-rprx-vision" if sub.protocol == "vless" else "",
         }
 

@@ -149,6 +149,34 @@ class SecurityStore:
         self._failed_attempts.pop(client_ip, None)
         self._blocked_ips.pop(client_ip, None)
 
+    def clear_all_blocks(self):
+        """Synchronously clear all in-memory rate limits, failed attempts, and blocked IPs."""
+        self._blocked_ips.clear()
+        self._failed_attempts.clear()
+
+    async def clear_all_blocks_async(self):
+        """Asynchronously clear all rate limits and blocked IPs from Redis and memory."""
+        self.clear_all_blocks()
+        r = await self._get_redis()
+        if r:
+            try:
+                async for key in r.scan_iter("block_ip:*"):
+                    await r.delete(key)
+                async for key in r.scan_iter("fail_ip:*"):
+                    await r.delete(key)
+            except Exception as e:
+                logger.warning(f"Redis clear_all_blocks_async failed: {e}")
+
+    @property
+    def failed_attempts(self) -> Dict[str, List[float]]:
+        """Expose failed attempts dict to prevent AttributeError."""
+        return self._failed_attempts
+
+    @property
+    def blocked_ips(self) -> Dict[str, float]:
+        """Expose blocked IPs dict to prevent AttributeError."""
+        return self._blocked_ips
+
     # -------------------------------------------------------------
     # Token Revocation & Epoch Management
     # -------------------------------------------------------------

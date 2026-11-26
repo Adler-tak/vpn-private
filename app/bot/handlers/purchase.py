@@ -136,6 +136,49 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         if filtered_servers:
             servers = filtered_servers
 
+    # Auto-assign location if product specifies an inbound/single location or only 1 server available
+    auto_loc = None
+    if product.allowed_locations and product.allowed_locations.strip().upper() != "ALL":
+        allowed_list = [loc.strip() for loc in product.allowed_locations.split(",") if loc.strip()]
+        if len(allowed_list) == 1:
+            auto_loc = allowed_list[0]
+
+    if not auto_loc and len(servers) == 1:
+        auto_loc = servers[0].location_code or "DEFAULT"
+
+    if auto_loc:
+        await state.update_data(location_code=auto_loc)
+        await state.set_state(PurchaseOrderState.entering_coupon)
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⏩ رد شدن (بدون کد تخفیف)", callback_data="skip_coupon")],
+                [InlineKeyboardButton(text="❌ انصراف", callback_data="cancel_action")],
+            ]
+        )
+        import html
+        p_name = html.escape(product.name)
+
+        loc_label = auto_loc
+        if servers:
+            for s in servers:
+                if s.location_code and s.location_code.upper() == auto_loc.upper():
+                    loc_label = f"{s.flag or '🌍'} {s.country_name or s.name or auto_loc}"
+                    break
+            else:
+                if len(servers) == 1:
+                    s = servers[0]
+                    loc_label = f"{s.flag or '🌍'} {s.country_name or s.name or auto_loc}"
+
+        await callback.message.edit_text(
+            f"✨ <b>بسته «{p_name}» انتخاب شد.</b>\n"
+            f"📍 <b>موقعیت مکانی:</b> <b>{loc_label}</b> (انتخاب خودکار)\n\n"
+            f"🎁 <b>آیا کد تخفیف دارید؟</b>\nاگر کد تخفیف دارید آن را تایپ و ارسال نمایید، در غیر این صورت دکمه «رد شدن» را لمس کنید:",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
     await state.set_state(PurchaseOrderState.selecting_location)
     await callback.message.edit_text(
         "🌍 <b>لطفاً موقعیت مکانی (لوکیشن) سرور مورد نظر خود را انتخاب نمایید:</b>",

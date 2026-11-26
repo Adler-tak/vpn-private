@@ -454,6 +454,12 @@ async def admin_login(
         str(json_settings.get("ADMIN_WEB_USERNAME", "")).lower(),
         str(os.environ.get("ADMIN_WEB_USERNAME", "")).lower(),
     }
+    from app.services.settings_service import SettingsService
+    db_user = await SettingsService.get_value("ADMIN_WEB_USERNAME")
+    db_pass = await SettingsService.get_value("ADMIN_WEB_PASSWORD")
+    db_hash = await SettingsService.get_value("ADMIN_WEB_PASSWORD_HASH")
+    if db_user:
+        valid_usernames.add(str(db_user).lower().strip())
     valid_usernames.discard("")
 
     is_primary_username = (
@@ -467,6 +473,8 @@ async def admin_login(
             str(json_settings.get("ADMIN_WEB_PASSWORD", "")),
             str(os.environ.get("ADMIN_WEB_PASSWORD", "")),
         }
+        if db_pass:
+            expected_passwords.add(str(db_pass).strip())
         expected_passwords.discard("")
 
         expected_hashes = {
@@ -474,6 +482,8 @@ async def admin_login(
             str(json_settings.get("ADMIN_WEB_PASSWORD_HASH", "")),
             str(os.environ.get("ADMIN_WEB_PASSWORD_HASH", "")),
         }
+        if db_hash:
+            expected_hashes.add(str(db_hash).strip())
         expected_hashes.discard("")
 
         if p in expected_passwords:
@@ -1728,24 +1738,31 @@ async def approve_payment(
             qr_file = BufferedInputFile(qr_buf.getvalue(), filename="sub_qr.png")
 
             unlimited_hint = (
-                "\n💡 <i>این سرویس نامحدود چندلوکیشن است. با وارد کردن لینک اشتراک بالا در نرم‌افزار، تمامی لوکیشن‌های فعال به صورت خودکار بارگذاری می‌شوند.</i>\n"
+                "\n\n💡 <i>این سرویس نامحدود چندلوکیشن است. با وارد کردن لینک اشتراک بالا در نرم‌افزار، تمامی لوکیشن‌های فعال به صورت خودکار بارگذاری می‌شوند.</i>\n"
                 if subscription.traffic_limit_bytes == 0
                 else ""
             )
-            customer_msg = (
-                f"🎉 <b>پرداخت شما تایید شد و سرویس فعال گردید!</b>\n\n"
-                f"🏷 <b>شناسه:</b> <code>{subscription.client_email}</code>\n"
-                f"🌍 <b>لوکیشن:</b> {conn['flag']} <b>{conn['location']}</b>\n"
-                f"📡 <b>پروتکل:</b> <b>{conn['protocol']}</b>\n\n"
-                f"🔗 <b>لینک اشتراک هوشمند (Subscription URL):</b>\n"
-                f"<code>{conn['subscription_url']}</code>\n"
-                f"{unlimited_hint}\n"
-                f"📱 <b>نرم‌افزار پیشنهادی جهت اتصال (Happ Proxy):</b>\n"
-                f"🍏 <b>دانلود نسخه iOS (آیفون):</b> <a href=\"https://apps.apple.com/app/happ-proxy-utility/id6504287215\">دریافت از App Store</a>\n"
-                f"🤖 <b>دانلود نسخه اندروید:</b> <a href=\"https://play.google.com/store/apps/details?id=com.happproxy\">دریافت از Google Play</a>\n\n"
-                f"💡 <i>کافیست پس از نصب برنامه، لینک اشتراک هوشمند بالا را کپی کرده یا بارکد QR بالا را درون نرم‌افزار اسکن نمایید.</i>\n\n"
-                f"🙏 از اعتماد شما به VPN Private سپاسگزاریم."
+            from app.modules.bot_texts.service import get_bot_text
+            delivery_template = get_bot_text("order_approved_delivery")
+            support_u = getattr(settings, "SUPPORT_USERNAME", "VPNPrivateSupport").lstrip("@")
+
+            class SafeDict(dict):
+                def __missing__(self, key):
+                    return f"{{{key}}}"
+
+            customer_msg = delivery_template.format_map(
+                SafeDict(
+                    client_email=subscription.client_email or "",
+                    location=conn.get("location", ""),
+                    flag=conn.get("flag", ""),
+                    protocol=conn.get("protocol", ""),
+                    subscription_url=conn.get("subscription_url", ""),
+                    support_username=support_u,
+                    remark=conn.get("remark", ""),
+                )
             )
+            if unlimited_hint:
+                customer_msg += unlimited_hint
             await bot.send_photo(
                 chat_id=customer.telegram_id,
                 photo=qr_file,
@@ -2725,19 +2742,22 @@ async def quick_create_subscription(
     client_uuid = str(uuid.uuid4())
     subscription_token = secrets.token_hex(16)
 
+    email_suffix = await SettingsService.get_effective_email_suffix(db)
+    config_prefix = await SettingsService.get_effective_config_title_prefix(db)
+
     if req.remark:
         clean_remark = "".join(c for c in req.remark.strip() if c.isalnum() or c in ("-", "_")).strip("-_")
         if clean_remark:
-            client_email = f"{clean_remark}_{secrets.token_hex(3)}@vpnprivate"
+            client_email = f"{clean_remark}_{secrets.token_hex(3)}{email_suffix}"
         else:
-            client_email = f"custom_{secrets.token_hex(4)}@vpnprivate"
+            client_email = f"custom_{secrets.token_hex(4)}{email_suffix}"
     else:
-        client_email = f"custom_{secrets.token_hex(4)}@vpnprivate"
+        client_email = f"custom_{secrets.token_hex(4)}{email_suffix}"
 
     # Ensure unique client_email in local database
     existing_sub = (await db.execute(select(Subscription).where(Subscription.client_email == client_email))).scalars().first()
     while existing_sub:
-        client_email = f"custom_{secrets.token_hex(4)}@vpnprivate"
+        client_email = f"custom_{secrets.token_hex(4)}{email_suffix}"
         existing_sub = (await db.execute(select(Subscription).where(Subscription.client_email == client_email))).scalars().first()
 
     # 5. Traffic & Expiry calculations
@@ -2853,7 +2873,7 @@ async def quick_create_subscription(
                 pass
         inbound_dict = {
             "port": inbound.port if inbound else 443,
-            "remark": req.remark or f"VPN-Private-{target_server.location_code}",
+            "remark": req.remark or f"{config_prefix}-{target_server.location_code}",
             "stream_settings": inbound_stream,
             "settings": inbound_stream,
             "protocol": inbound.protocol if inbound else req_proto,
@@ -2863,7 +2883,7 @@ async def quick_create_subscription(
             "email": client_email,
             "username": client_email.split("@")[0],
             "password": client_uuid,
-            "remark": req.remark or f"VPN-Private-{target_server.location_code}",
+            "remark": req.remark or f"{config_prefix}-{target_server.location_code}",
             "flow": "xtls-rprx-vision" if req_proto == "vless" else "",
         }
 
@@ -2899,14 +2919,14 @@ async def quick_create_subscription(
     # Robust fallback direct link generation if adapter URL was not produced
     if not direct_link:
         sport = inbound.port if inbound else 443
-        sremark = urllib.parse.quote(req.remark or f"VPN-Private-{target_server.location_code}")
+        sremark = urllib.parse.quote(req.remark or f"{config_prefix}-{target_server.location_code}")
         if req_proto == "vless":
             direct_link = f"vless://{client_uuid}@{sub_host}:{sport}?security=reality&sni={sub_host}&fp=chrome&type=tcp#{sremark}"
         elif req_proto == "vmess":
             import base64
             vm_obj = {
                 "v": "2",
-                "ps": req.remark or f"VPN-Private-{target_server.location_code}",
+                "ps": req.remark or f"{config_prefix}-{target_server.location_code}",
                 "add": sub_host,
                 "port": sport,
                 "id": client_uuid,
@@ -5326,6 +5346,8 @@ async def update_admin_security_settings(
         new_user = req.admin_web_username.strip()
         settings.ADMIN_WEB_USERNAME = new_user
         update_env_variable("ADMIN_WEB_USERNAME", new_user)
+        from app.services.settings_service import SettingsService
+        await SettingsService.set_value("ADMIN_WEB_USERNAME", new_user, session=db)
         if admin:
             admin.username = new_user
         updated.append(f"username={new_user}")
@@ -5336,6 +5358,9 @@ async def update_admin_security_settings(
         update_env_variable("ADMIN_WEB_PASSWORD", new_pw)
         new_hash = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt(12)).decode("utf-8")
         update_env_variable("ADMIN_WEB_PASSWORD_HASH", new_hash)
+        from app.services.settings_service import SettingsService
+        await SettingsService.set_value("ADMIN_WEB_PASSWORD", new_pw, session=db)
+        await SettingsService.set_value("ADMIN_WEB_PASSWORD_HASH", new_hash, session=db)
         updated.append("password=******")
         password_changed = True
 
@@ -6649,9 +6674,14 @@ async def get_bot_texts_endpoint(
 ):
     """Retrieve all dynamic Telegram bot texts with titles and descriptions along with channel lock and support settings."""
     from app.modules.bot_texts.service import get_all_bot_texts
-    from app.services.settings_service import get_effective_bot_username
+    from app.services.settings_service import SettingsService, get_effective_bot_username
     items = get_all_bot_texts()
     bot_user = await get_effective_bot_username(db)
+    raw_suffix = await SettingsService.get_value("CLIENT_EMAIL_SUFFIX") or ""
+    raw_prefix = await SettingsService.get_value("CONFIG_TITLE_PREFIX") or "VPN-Private"
+    eff_suffix = await SettingsService.get_effective_email_suffix(db)
+    eff_prefix = await SettingsService.get_effective_config_title_prefix(db)
+
     return {
         "items": items,
         "total": len(items),
@@ -6667,6 +6697,10 @@ async def get_bot_texts_endpoint(
         "bot": {
             "bot_username": bot_user,
         },
+        "client_email_suffix": str(raw_suffix) if raw_suffix else "",
+        "config_title_prefix": str(raw_prefix) if raw_prefix else "VPN-Private",
+        "effective_email_suffix": eff_suffix,
+        "effective_config_title_prefix": eff_prefix,
     }
 
 
@@ -6676,8 +6710,9 @@ async def update_bot_texts_endpoint(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update dynamic Telegram bot texts, channel lock, and support username."""
+    """Update dynamic Telegram bot texts, channel lock, support username, email suffix, and config prefix."""
     from app.modules.bot_texts.service import update_bot_texts, get_all_bot_texts
+    from app.services.settings_service import SettingsService
     clean_texts = {}
     raw_dict = payload.get("texts") if isinstance(payload.get("texts"), dict) else payload
 
@@ -6716,12 +6751,34 @@ async def update_bot_texts_endpoint(
     if bot_user_val:
         settings.BOT_USERNAME = bot_user_val
         update_env_variable("BOT_USERNAME", bot_user_val)
-        from app.services.settings_service import SettingsService
         await SettingsService.set_value("BOT_USERNAME", bot_user_val, session=db)
+
+    # 4. Update client_email_suffix if provided
+    if "client_email_suffix" in payload or (isinstance(raw_dict, dict) and "client_email_suffix" in raw_dict):
+        raw_sfx = payload.get("client_email_suffix") if "client_email_suffix" in payload else raw_dict.get("client_email_suffix")
+        clean_sfx = str(raw_sfx).strip() if raw_sfx is not None else ""
+        if clean_sfx and not clean_sfx.startswith("@"):
+            clean_sfx = f"@{clean_sfx}"
+        await SettingsService.set_value("CLIENT_EMAIL_SUFFIX", clean_sfx, session=db)
+
+    # 5. Update config_title_prefix if provided
+    if "config_title_prefix" in payload or (isinstance(raw_dict, dict) and "config_title_prefix" in raw_dict):
+        raw_pfx = payload.get("config_title_prefix") if "config_title_prefix" in payload else raw_dict.get("config_title_prefix")
+        clean_pfx = str(raw_pfx).strip() if raw_pfx is not None else "VPN-Private"
+        await SettingsService.set_value("CONFIG_TITLE_PREFIX", clean_pfx, session=db)
 
     if isinstance(payload, dict):
         for k, v in raw_dict.items():
-            if k in ("channel_lock_enabled", "channel_username", "support_username", "bot_username"):
+            if k in (
+                "channel_lock_enabled",
+                "channel_username",
+                "support_username",
+                "bot_username",
+                "client_email_suffix",
+                "config_title_prefix",
+                "effective_email_suffix",
+                "effective_config_title_prefix",
+            ):
                 continue
             if isinstance(v, str):
                 clean_texts[k] = v
@@ -6756,6 +6813,10 @@ async def update_bot_texts_endpoint(
         "bot": {
             "bot_username": settings.BOT_USERNAME,
         },
+        "client_email_suffix": str(await SettingsService.get_value("CLIENT_EMAIL_SUFFIX") or ""),
+        "config_title_prefix": str(await SettingsService.get_value("CONFIG_TITLE_PREFIX") or "VPN-Private"),
+        "effective_email_suffix": await SettingsService.get_effective_email_suffix(db),
+        "effective_config_title_prefix": await SettingsService.get_effective_config_title_prefix(db),
     }
 
 

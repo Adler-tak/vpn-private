@@ -263,7 +263,9 @@ elif [ -d "$INSTALL_DIR/.git" ]; then
     echo -e "${GREEN}[✓] Existing git installation found at $INSTALL_DIR. Pulling latest main branch...${NC}"
     cd "$INSTALL_DIR"
     git fetch --all --prune
-    git reset --hard origin/main || git pull origin main || true
+    git reset --hard origin/main
+    git clean -fd -e .env -e vpn_private.db -e "*.db" -e "data/" -e "backups/"
+    git pull origin main || true
 else
     echo -e "${YELLOW}[*] Cloning repository from $REPO_URL...${NC}"
     mkdir -p "$INSTALL_DIR"
@@ -512,18 +514,27 @@ echo -e "${YELLOW}[*] Running clean database schema creation and core settings i
 $DC exec -T vpn-api python scripts/seed_data.py || python3 "$INSTALL_DIR/scripts/seed_data.py" || true
 echo -e "${GREEN}[✓] Database schema and core settings initialized successfully.${NC}"
 
-# Explicitly synchronize configured Web Admin credentials into database table
-if [ -n "$CFG_WEB_USER" ] && [ -n "$CFG_WEB_PASS" ]; then
+# Explicitly synchronize configured Web Admin credentials into database table only when requested or on fresh install
+if ([ "$EXISTING_ENV" = false ] || [ "$RECONFIGURE" = true ] || [[ "$change_admin_creds" =~ ^[yY]$ ]]) && [ -n "$CFG_WEB_USER" ] && [ -n "$CFG_WEB_PASS" ]; then
     $DC exec -T vpn-api python -c "
 import asyncio
+import bcrypt
 from app.services.settings_service import SettingsService
 from app.api.routes.admin import security_store
 
 async def main():
     await SettingsService.set_value('ADMIN_WEB_USERNAME', '$CFG_WEB_USER')
     await SettingsService.set_value('ADMIN_WEB_PASSWORD', '$CFG_WEB_PASS')
-    security_store.failed_attempts.clear()
-    security_store.blocked_ips.clear()
+    try:
+        pw_hash = bcrypt.hashpw(b'''$CFG_WEB_PASS''', bcrypt.gensalt()).decode('utf-8')
+        await SettingsService.set_value('ADMIN_WEB_PASSWORD_HASH', pw_hash)
+    except Exception:
+        pass
+    if hasattr(security_store, 'clear_all_blocks'):
+        security_store.clear_all_blocks()
+    else:
+        getattr(security_store, '_failed_attempts', {}).clear()
+        getattr(security_store, '_blocked_ips', {}).clear()
     print('  [✓] Web Admin credentials successfully synchronized into database.')
 
 asyncio.run(main())

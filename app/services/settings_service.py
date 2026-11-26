@@ -5,6 +5,7 @@ providing in-memory caching and clean categorization.
 """
 import os
 import json
+import inspect
 import logging
 from typing import Any, Optional, Dict, List
 from sqlalchemy import select
@@ -145,6 +146,18 @@ DEFAULT_SYSTEM_SETTINGS: List[Dict[str, str]] = [
         "value": "VPNPrivateSell_Bot",
         "category": "telegram",
         "description": "نام کاربری ربات تلگرام",
+    },
+    {
+        "key": "CLIENT_EMAIL_SUFFIX",
+        "value": "",
+        "category": "telegram",
+        "description": "پسوند ایمیل کاربران در کانفیگ‌ها (خالی = @آیدی_ربات)",
+    },
+    {
+        "key": "CONFIG_TITLE_PREFIX",
+        "value": "VPN-Private",
+        "category": "telegram",
+        "description": "پیشوند عنوان و ریمارک نمایشی کانفیگ‌ها",
     },
 
     # --- Trial Subscription Settings ---
@@ -288,6 +301,34 @@ _last_db_mtime: float = 0.0
 _last_json_mtime: float = 0.0
 
 
+class _AwaitableNone:
+    _is_none = True
+
+    def __await__(self):
+        async def _coro():
+            return None
+        return _coro().__await__()
+
+    def __bool__(self):
+        return False
+
+    def __eq__(self, other):
+        return other is None or isinstance(other, _AwaitableNone)
+
+    def __str__(self):
+        return ""
+
+    def __repr__(self):
+        return "None"
+
+
+class _AwaitableStr(str):
+    def __await__(self):
+        async def _coro():
+            return str(self)
+        return _coro().__await__()
+
+
 class SettingsService:
     @classmethod
     def _refresh_cache_if_stale(cls) -> None:
@@ -329,15 +370,34 @@ class SettingsService:
 
     @classmethod
     def get_value(cls, key: str, default: Any = None) -> Any:
-        """Read setting from in-memory cache (with cross-container mtime sync)."""
+        """Read setting from in-memory cache (with cross-container mtime sync).
+        Returns an awaitable-compatible string/value so callers can invoke either synchronously
+        or via `await SettingsService.get_value(...)`.
+        """
         if not key or not isinstance(key, str):
-            return default
-        cls._refresh_cache_if_stale()
-        k = key.strip().upper()
-        if k in _settings_cache:
-            val = _settings_cache[k]
-            return val if val is not None else default
-        return default
+            res = default
+        else:
+            cls._refresh_cache_if_stale()
+            k = key.strip().upper()
+            if k in _settings_cache:
+                val = _settings_cache[k]
+                res = val if val is not None else default
+            else:
+                res = default
+
+        if res is None:
+            return _AwaitableNone()
+        if isinstance(res, str) and not isinstance(res, _AwaitableStr):
+            return _AwaitableStr(res)
+        return res
+
+    @classmethod
+    async def get_value_async(cls, key: str, default: Any = None, session: Optional[Any] = None) -> Any:
+        """Asynchronous get_value for explicit async calls."""
+        res = cls.get_value(key, default)
+        if inspect.isawaitable(res):
+            return await res
+        return res
 
     @classmethod
     def get_int(cls, key: str, default: int = 0) -> int:
@@ -672,6 +732,51 @@ class SettingsService:
             logger.warning(f"Error fetching all system settings: {e}")
             return []
 
+    @classmethod
+    async def get_effective_email_suffix(cls, session=None) -> str:
+        """
+        If CLIENT_EMAIL_SUFFIX is set and non-empty, return it (ensure leading @).
+        Else get effective bot username (using get_effective_bot_username(session)) and return @ + username.
+        Else fallback to @vpnprivate.
+        """
+        try:
+            val = cls.get_value("CLIENT_EMAIL_SUFFIX")
+            if inspect.isawaitable(val):
+                val = await val
+            if val and str(val).strip():
+                clean = str(val).strip()
+                return clean if clean.startswith("@") else f"@{clean}"
+        except Exception as e:
+            logger.debug(f"Could not load CLIENT_EMAIL_SUFFIX: {e}")
+
+        try:
+            bot_user = await get_effective_bot_username(session)
+            if bot_user and str(bot_user).strip():
+                clean_bot = str(bot_user).strip().lstrip("@")
+                if clean_bot:
+                    return f"@{clean_bot}"
+        except Exception as e:
+            logger.debug(f"Could not load bot username for email suffix: {e}")
+
+        return "@vpnprivate"
+
+    @classmethod
+    async def get_effective_config_title_prefix(cls, session=None) -> str:
+        """
+        If CONFIG_TITLE_PREFIX is set and non-empty, return it.
+        Else fallback to 'VPN-Private'.
+        """
+        try:
+            val = cls.get_value("CONFIG_TITLE_PREFIX")
+            if inspect.isawaitable(val):
+                val = await val
+            if val and str(val).strip():
+                return str(val).strip()
+        except Exception as e:
+            logger.debug(f"Could not load CONFIG_TITLE_PREFIX: {e}")
+
+        return "VPN-Private"
+
 
 async def get_effective_bot_username(session: Optional[Any] = None) -> str:
     """
@@ -783,4 +888,8 @@ def get_effective_bot_username_sync() -> str:
         pass
 
     return "VPNPrivateSell_Bot"
+
+
+get_effective_email_suffix = SettingsService.get_effective_email_suffix
+get_effective_config_title_prefix = SettingsService.get_effective_config_title_prefix
 

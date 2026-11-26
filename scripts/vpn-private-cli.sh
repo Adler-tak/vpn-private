@@ -208,6 +208,8 @@ update_platform() {
 
     echo -e "\n${BLUE}[1/4] Fetching latest git changes...${NC}"
     git fetch --all --prune
+    git reset --hard origin/main
+    git clean -fd -e .env -e vpn_private.db -e "*.db" -e "data/" -e "backups/"
     git pull origin main || true
 
     echo -e "\n${BLUE}[2/4] Ensuring Docker networks...${NC}"
@@ -223,12 +225,12 @@ update_platform() {
         fi
         if ! $DC pull; then
             echo -e "${YELLOW}[!] Image pull failed; rebuilding locally...${NC}"
-            $DC up -d --build
+            $DC up -d --build --remove-orphans
         else
-            $DC up -d
+            $DC up -d --remove-orphans
         fi
     else
-        $DC up -d
+        $DC up -d --remove-orphans
     fi
 
     echo -e "\n${BLUE}[4/4] Running DB schema & core settings sync inside container...${NC}"
@@ -344,6 +346,7 @@ reset_admin_credentials() {
 
     $DC exec -T vpn-api python -c "
 import asyncio
+import bcrypt
 from app.services.settings_service import SettingsService
 from app.api.routes.admin import security_store
 
@@ -351,8 +354,16 @@ async def main():
     if '$new_adm_user':
         await SettingsService.set_value('ADMIN_WEB_USERNAME', '$new_adm_user')
     await SettingsService.set_value('ADMIN_WEB_PASSWORD', '$new_adm_pass')
-    security_store.failed_attempts.clear()
-    security_store.blocked_ips.clear()
+    try:
+        pw_hash = bcrypt.hashpw(b'''$new_adm_pass''', bcrypt.gensalt()).decode('utf-8')
+        await SettingsService.set_value('ADMIN_WEB_PASSWORD_HASH', pw_hash)
+    except Exception:
+        pass
+    if hasattr(security_store, 'clear_all_blocks'):
+        security_store.clear_all_blocks()
+    else:
+        getattr(security_store, '_failed_attempts', {}).clear()
+        getattr(security_store, '_blocked_ips', {}).clear()
     print('SUCCESS')
 
 asyncio.run(main())

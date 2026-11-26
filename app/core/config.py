@@ -79,7 +79,7 @@ def get_live_env(key: str, default: Any = None) -> Any:
     try:
         from app.services.settings_service import SettingsService
         cached_val = SettingsService.get_value(k_upper)
-        if cached_val is not None:
+        if cached_val is not None and not getattr(cached_val, "_is_none", False):
             return cached_val
     except Exception:
         pass

@@ -492,7 +492,7 @@
             <label class="block text-xs font-semibold text-slate-300 mb-2">نام کاربری مدیریت:</label>
             <div class="relative">
               <span class="absolute right-3.5 top-3 text-slate-400 text-sm"><i class="bi bi-person"></i></span>
-              <input type="text" id="login-username" name="username" required autocomplete="username" placeholder="نام کاربری مدیریت (مثلاً admin یا gigplus)" 
+              <input type="text" id="login-username" name="username" required autocomplete="username" placeholder="نام کاربری مدیریت" 
                 class="w-full pr-10 pl-4 py-2.5 rounded-xl bg-slate-900/80 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
             </div>
           </div>
@@ -2694,8 +2694,8 @@
                 </div>
               </div>
 
-              <!-- Channel Lock & Support Configuration Bar -->
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-950/80 p-4 rounded-xl border border-indigo-500/30">
+              <!-- Channel Lock, Support & Config Settings Bar -->
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-slate-950/80 p-4 rounded-xl border border-indigo-500/30">
                 <!-- Channel Lock Toggle -->
                 <div class="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-slate-800">
                   <div>
@@ -2754,9 +2754,33 @@
                   </div>
                   <p class="text-[10px] text-slate-500">شناسه کاربری پشتیبان تلگرام جهت ارتباط مستقیم</p>
                 </div>
+
+                <!-- Client Email Suffix -->
+                <div class="space-y-1">
+                  <label class="block text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <i class="bi bi-at text-purple-400"></i>
+                    <span>پسوند ایمیل کلاینت در کانفیگ‌ها (Email Suffix):</span>
+                  </label>
+                  <div class="relative">
+                    <input type="text" id="cfg-client-email-suffix" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-purple-500 transition" dir="ltr" placeholder="@VPNPrivateSell_Bot (پیش‌فرض: آیدی ربات)">
+                  </div>
+                  <p class="text-[10px] text-slate-500">جایگزین @vpnprivate در ایمیل کلاینت (مانند @MyBrand)</p>
+                </div>
+
+                <!-- Config Title / Remark Prefix -->
+                <div class="space-y-1">
+                  <label class="block text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <i class="bi bi-tag text-cyan-400"></i>
+                    <span>پیشوند نام و ریمارک کانفیگ (Config Remark/Title Prefix):</span>
+                  </label>
+                  <div class="relative">
+                    <input type="text" id="cfg-config-title-prefix" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white font-mono focus:outline-none focus:border-cyan-500 transition" dir="ltr" placeholder="VPN-Private">
+                  </div>
+                  <p class="text-[10px] text-slate-500">پیشوند عنوان نمایشی کانفیگ‌ها در نرم‌افزارهای کاربر</p>
+                </div>
               </div>
 
-              <!-- Grid of Textareas for 9 Canonical Bot Text Keys -->
+              <!-- Grid of Textareas for 10 Canonical Bot Text Keys -->
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <!-- 1. start_welcome -->
                 <div class="space-y-1.5 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
@@ -2891,6 +2915,21 @@
                   <textarea id="bot-text-free_trial_guide" rows="4" dir="auto"
                     class="bot-textarea w-full p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 custom-scroll font-sans"
                     placeholder="متن دریافت تست رایگان..."></textarea>
+                </div>
+
+                <!-- 10. order_approved_delivery (full width on lg) -->
+                <div class="lg:col-span-2 space-y-1.5 bg-slate-900/60 p-4 rounded-xl border border-slate-800/80">
+                  <div class="flex items-center justify-between">
+                    <label class="text-xs font-bold text-slate-200 flex items-center gap-2">
+                      <span class="text-emerald-400">🚀</span>
+                      <span>متن تایید پرداخت و ارسال کانفیگ به کاربر (order_approved_delivery)</span>
+                    </label>
+                    <span class="text-[10px] font-mono text-slate-500">order_approved_delivery</span>
+                  </div>
+                  <p class="text-[11px] text-slate-400">متنی که پس از تایید رسید/پرداخت توسط مدیریت به همراه بارکد QR به کاربر تلگرام ارسال می‌شود. متغیرهای در دسترس: {client_email}، {location}، {flag}، {protocol}، {subscription_url}، {support_username}، {remark}</p>
+                  <textarea id="bot-text-order_approved_delivery" rows="4" dir="auto"
+                    class="bot-textarea w-full p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 custom-scroll font-sans"
+                    placeholder="متن پیام تایید پرداخت و تحویل کانفیگ..."></textarea>
                 </div>
               </div>
 
@@ -5729,10 +5768,6 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-      const uInput = document.getElementById('login-username');
-      if (uInput && !uInput.value) {
-        uInput.value = 'SecureAdmin';
-      }
       const otpInput = document.getElementById('login-otp');
       if (otpInput) {
         otpInput.addEventListener('keypress', (e) => {
@@ -6622,8 +6657,7 @@
       if (displayEl) displayEl.innerText = name;
       const cfgName = document.getElementById('cfg-admin-username');
       if (cfgName && !cfgName.value) cfgName.value = name;
-      const loginName = document.getElementById('login-username');
-      if (loginName) loginName.value = name;
+      // Keep login-username empty to prevent polluting the login form
     }
 
     function openChangeUsernameModal() {
@@ -10951,7 +10985,8 @@ ${filename}
       'referral_guide',
       'support_guide',
       'rules_terms',
-      'free_trial_guide'
+      'free_trial_guide',
+      'order_approved_delivery'
     ];
 
     function updateChannelLockToggleBadge() {
@@ -11010,6 +11045,17 @@ ${filename}
           const botEl = document.getElementById('cfg-bot-username');
           if (botEl) botEl.value = window.currentActiveBotUsername;
         }
+
+        // Load Email Suffix and Config Title Prefix
+        const emailSuffixEl = document.getElementById('cfg-client-email-suffix');
+        if (emailSuffixEl) {
+          emailSuffixEl.value = (res && res.client_email_suffix != null) ? res.client_email_suffix : (res?.settings?.client_email_suffix ?? '');
+        }
+        const titlePrefixEl = document.getElementById('cfg-config-title-prefix');
+        if (titlePrefixEl) {
+          titlePrefixEl.value = (res && res.config_title_prefix != null) ? res.config_title_prefix : (res?.settings?.config_title_prefix ?? '');
+        }
+
         updateChannelLockToggleBadge();
       } catch (err) {
         console.warn('Could not load bot texts from backend:', err);
@@ -11038,6 +11084,11 @@ ${filename}
         const channelUser = document.getElementById('cfg-bot-channel-username')?.value.trim() || '';
         const supportUser = document.getElementById('cfg-bot-support-username')?.value.trim() || '';
         const botUser = document.getElementById('cfg-bot-username')?.value.trim() || '';
+        const clientEmailSuffix = document.getElementById('cfg-client-email-suffix')?.value.trim() || '';
+        const configTitlePrefix = document.getElementById('cfg-config-title-prefix')?.value.trim() || '';
+
+        payload.client_email_suffix = clientEmailSuffix;
+        payload.config_title_prefix = configTitlePrefix;
 
         // Satisfy both { texts: payload } and flat dict payload schemas
         const body = {
@@ -11046,7 +11097,9 @@ ${filename}
           channel_lock_enabled: lockEnabled,
           channel_username: channelUser,
           support_username: supportUser,
-          bot_username: botUser
+          bot_username: botUser,
+          client_email_suffix: clientEmailSuffix,
+          config_title_prefix: configTitlePrefix
         };
 
         const res = await apiFetch('/bot/texts', {

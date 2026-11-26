@@ -67,6 +67,23 @@ DEFAULT_BOT_TEXTS: Dict[str, Dict[str, str]] = {
         "description": "راهنمای اتصال و استفاده از اشتراک تست رایگان",
         "default": "💡 <i>لینک فوق را کپی کرده یا بارکد QR را درون اپلیکیشن Happ، Streisand یا v2rayNG اسکن فرمایید.</i>",
     },
+    "order_approved_delivery": {
+        "title": "متن تایید پرداخت و تحویل کانفیگ به کاربر",
+        "description": "متنی که پس از تایید فیش توسط ادمین به همراه بارکد QR برای کاربر ارسال می‌شود. متغیرها: {client_email}, {location}, {flag}, {protocol}, {subscription_url}, {support_username}, {remark}",
+        "default": (
+            "🎉 <b>پرداخت شما تایید شد و سرویس فعال گردید!</b>\n\n"
+            "🏷 <b>شناسه:</b> <code>{client_email}</code>\n"
+            "🌍 <b>لوکیشن:</b> {flag} <b>{location}</b>\n"
+            "📡 <b>پروتکل:</b> <b>{protocol}</b>\n\n"
+            "🔗 <b>لینک اشتراک هوشمند (Subscription URL):</b>\n"
+            "<code>{subscription_url}</code>\n\n"
+            "📱 <b>نرم‌افزار پیشنهادی جهت اتصال (Happ Proxy):</b>\n"
+            "🍏 <b>دانلود نسخه iOS (آیفون):</b> <a href=\"https://apps.apple.com/app/happ-proxy-utility/id6504287215\">دریافت از App Store</a>\n"
+            "🤖 <b>دانلود نسخه اندروید:</b> <a href=\"https://play.google.com/store/apps/details?id=com.happproxy\">دریافت از Google Play</a>\n\n"
+            "💡 <i>کافیست پس از نصب برنامه، لینک اشتراک هوشمند بالا را کپی کرده یا بارکد QR بالا را درون نرم‌افزار اسکن نمایید.</i>\n\n"
+            "🙏 از اعتماد شما به VPN Private سپاسگزاریم."
+        ),
+    },
 }
 
 _cache: Dict[str, str] = {}
