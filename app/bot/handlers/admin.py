@@ -13,7 +13,7 @@ from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models.user import User
-from app.database.models.payment import Payment
+from app.database.models.payment import Payment, PaymentReceipt
 from app.database.models.panel import Panel, Server, Inbound
 from app.database.models.subscription import Subscription
 from app.database.models.product import Product
@@ -25,7 +25,7 @@ from app.modules.subscriptions.service import SubscriptionService
 from app.modules.wallets.service import WalletService
 from app.bot.locales.fa import MAIN_MENU_BTNS
 from app.bot.states.customer import AdminState
-from app.core.constants import UserRole, PaymentStatus, SubscriptionStatus, TicketStatus
+from app.core.constants import UserRole, PaymentStatus, SubscriptionStatus, TicketStatus, PaymentMethod
 from app.core.config import settings
 from app.bot.notifications import notify_all_admins
 
@@ -230,8 +230,15 @@ async def list_pending_payments(callback: CallbackQuery, db_user: User, db_sessi
     if not is_admin(db_user):
         return await callback.answer("دسترسی غیرمجاز", show_alert=True)
 
+    receipt_subq = select(PaymentReceipt.payment_id)
     pending_res = await db_session.execute(
-        select(Payment).where(Payment.status == PaymentStatus.PENDING).order_by(Payment.created_at.desc())
+        select(Payment)
+        .where(
+            Payment.status == PaymentStatus.PENDING,
+            Payment.provider.in_([PaymentMethod.CARD_TO_CARD, PaymentMethod.CRYPTO, "card_to_card", "crypto"]),
+            or_(Payment.id.in_(receipt_subq), Payment.reference_id.is_not(None))
+        )
+        .order_by(Payment.created_at.desc())
     )
     payments = list(pending_res.scalars().all())
 
@@ -971,6 +978,19 @@ async def approve_payment_by_admin(
         return await callback.answer("دسترسی ندارید.", show_alert=True)
 
     payment_id = uuid.UUID(callback.data.split(":")[1])
+    payment = await db_session.get(Payment, payment_id)
+    if not payment:
+        return await callback.answer("پرداخت یافت نشد.", show_alert=True)
+    if payment.status == PaymentStatus.PAID:
+        return await callback.answer("این پرداخت قبلاً تایید شده است.", show_alert=True)
+    if payment.provider not in (PaymentMethod.CARD_TO_CARD, PaymentMethod.CRYPTO, "card_to_card", "crypto"):
+        return await callback.answer("فقط پرداخت‌های دستی (کارت‌به‌کارت و کریپتو) قابل تایید هستند.", show_alert=True)
+
+    receipt_res = await db_session.execute(select(PaymentReceipt).where(PaymentReceipt.payment_id == payment.id))
+    receipt = receipt_res.scalars().first()
+    if not receipt and not payment.reference_id and not payment.order_id:
+        return await callback.answer("برای این سفارش هنوز فیش یا اطلاعات واریزی ثبت نشده است.", show_alert=True)
+
     order_service = OrderService(db_session)
     sub_service = SubscriptionService(db_session)
 
@@ -4036,7 +4056,10 @@ async def admin_sub_add_days(callback: CallbackQuery, db_user: User, db_session:
 
     from datetime import datetime, timedelta, timezone
     now = datetime.now(timezone.utc)
-    base = sub.expires_at if sub.expires_at and sub.expires_at > now else now
+    cur_exp = sub.expires_at
+    if cur_exp and cur_exp.tzinfo is None:
+        cur_exp = cur_exp.replace(tzinfo=timezone.utc)
+    base = cur_exp if (cur_exp and cur_exp > now) else now
     sub.expires_at = base + timedelta(days=extra_days)
     if sub.status != SubscriptionStatus.ACTIVE:
         sub.status = SubscriptionStatus.ACTIVE
@@ -4286,7 +4309,7 @@ async def admin_view_tickets(callback: CallbackQuery, db_user: User, db_session:
 
     query = select(SupportTicket).options(selectinload(SupportTicket.user), selectinload(SupportTicket.messages))
     if filter_type == "open":
-        query = query.where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]))
+        query = query.where(SupportTicket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_FOR_CUSTOMER]))
     elif filter_type == "closed":
         query = query.where(SupportTicket.status.in_([TicketStatus.CLOSED, TicketStatus.RESOLVED]))
 

@@ -263,7 +263,10 @@ async def _async_check_expired():
                     )
                     adapter = ThreeXUIPanelAdapter(client)
                     try:
-                        expiry_ms = int(sub.expires_at.timestamp() * 1000) if sub.expires_at else 0
+                        cur_exp = sub.expires_at
+                        if cur_exp and cur_exp.tzinfo is None:
+                            cur_exp = cur_exp.replace(tzinfo=timezone.utc)
+                        expiry_ms = int(cur_exp.timestamp() * 1000) if cur_exp else 0
                         spec = ClientSpec(
                             id=sub.client_uuid,
                             email=sub.client_email,

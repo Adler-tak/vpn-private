@@ -1476,7 +1476,7 @@ async def get_financial_analytics(
 async def list_users(
     q: Optional[str] = Query(None, description="Search term (id, username, name)"),
     role: Optional[str] = None,
-    limit: int = 50,
+    limit: int = 500,
     offset: int = 0,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -1681,7 +1681,7 @@ async def send_direct_message_to_user(
 @router.get("/payments")
 async def list_payments(
     status_filter: Optional[str] = Query(None, description="PENDING, PAID, REJECTED"),
-    limit: int = 50,
+    limit: int = 500,
     offset: int = 0,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -1787,15 +1787,20 @@ async def approve_payment(
             detail="این پرداخت قبلاً تایید شده و سرویس کاربر فعال است.",
         )
 
-    # Validate that card-to-card payments have an uploaded receipt before manual approval
-    if payment.provider == PaymentMethod.CARD_TO_CARD:
-        receipt_res = await db.execute(select(PaymentReceipt).where(PaymentReceipt.payment_id == payment.id))
-        receipt = receipt_res.scalars().first()
-        if not receipt:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="برای این سفارش هنوز فیش یا اطلاعات واریزی توسط مشتری ثبت نشده است و امکان تایید وجود ندارد.",
-            )
+    # Validate that only manual card-to-card or crypto payments with proof can be approved manually
+    if payment.provider not in (PaymentMethod.CARD_TO_CARD, PaymentMethod.CRYPTO, "card_to_card", "crypto"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="فقط پرداخت‌های دستی (کارت‌به‌کارت و کریپتو) در این بخش قابل تایید هستند. پرداخت‌های آنلاین به صورت خودکار پردازش می‌شوند.",
+        )
+
+    receipt_res = await db.execute(select(PaymentReceipt).where(PaymentReceipt.payment_id == payment.id))
+    receipt = receipt_res.scalars().first()
+    if not receipt and not payment.reference_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="برای این سفارش هنوز فیش یا اطلاعات واریزی توسط مشتری ثبت نشده است و امکان تایید وجود ندارد.",
+        )
 
     try:
         subscription = await order_svc.approve_and_provision_order(
@@ -2392,7 +2397,7 @@ async def delete_order(
 # -------------------------------------------------------------
 @router.get("/subscriptions")
 async def list_subscriptions(
-    limit: int = 50,
+    limit: int = 500,
     offset: int = 0,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -3165,7 +3170,10 @@ async def extend_subscription(
     # 2. Update expiration date if specified
     if req.add_days > 0:
         now = datetime.now(timezone.utc)
-        base_time = sub.expires_at if (sub.expires_at and sub.expires_at > now) else now
+        cur_exp = sub.expires_at
+        if cur_exp and cur_exp.tzinfo is None:
+            cur_exp = cur_exp.replace(tzinfo=timezone.utc)
+        base_time = cur_exp if (cur_exp and cur_exp > now) else now
         sub.expires_at = base_time + timedelta(days=req.add_days)
 
     # 3. Synchronize with 3X-UI remote panel
@@ -3698,7 +3706,7 @@ async def delete_subscription(
 @router.get("/tickets")
 async def list_tickets(
     status_filter: Optional[str] = Query(None, description="open, closed, all"),
-    limit: int = 50,
+    limit: int = 500,
     offset: int = 0,
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
@@ -3787,16 +3795,14 @@ async def reply_to_ticket(
         sender_id=admin.telegram_id,
         text=req.message,
     )
-    if req.close_after_reply:
-        ticket.status = TicketStatus.CLOSED
-
-    await db.commit()
 
     # Deliver message to user in Telegram
     bot = get_telegram_bot()
+    delivered = False
+    delivery_err = ""
     try:
         user = await db.get(User, ticket.user_id)
-        if user:
+        if user and user.telegram_id:
             await bot.send_message(
                 chat_id=user.telegram_id,
                 text=(
@@ -3806,11 +3812,26 @@ async def reply_to_ticket(
                 ),
                 parse_mode="HTML",
             )
+            delivered = True
     except Exception as e_tg:
+        delivery_err = str(e_tg)
         logger.warning(f"Could not deliver ticket reply to telegram user: {e_tg}")
     finally:
         await bot.session.close()
 
+    if not delivered:
+        await db.commit()
+        return {
+            "success": False,
+            "message": f"پیام در دیتابیس ثبت شد اما ارسال به تلگرام کاربر با خطا مواجه گردید ({delivery_err}). تیکت باز نگه داشته شد.",
+        }
+
+    if req.close_after_reply:
+        ticket.status = TicketStatus.CLOSED
+    else:
+        ticket.status = TicketStatus.WAITING_FOR_CUSTOMER
+
+    await db.commit()
     return {"success": True, "message": "پاسخ با موفقیت برای کاربر در تلگرام ارسال شد."}
 
 

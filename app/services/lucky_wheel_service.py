@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models.reseller import LuckyWheelSpin, Coupon
 from app.database.models.user import User, Wallet
 from app.database.models.subscription import Subscription
+from app.database.models.panel import Panel, Inbound
 from app.database.models.setting import SystemSetting
 from app.services.settings_service import SettingsService
 
@@ -250,8 +251,41 @@ class LuckyWheelService:
             active_sub = sub_res.scalars().first()
             traffic_bytes = amount * 1024 * 1024
             if active_sub:
-                active_sub.traffic_limit_bytes = (active_sub.traffic_limit_bytes or 0) + traffic_bytes
-                reward_detail = f"حجم {amount} مگابایت به اشتراک فعال شما اضافه شد."
+                if active_sub.traffic_limit_bytes == 0:
+                    reward_detail = f"اشتراک شما نامحدود است؛ وضعیت ترافیک نامحدود حفظ شد."
+                else:
+                    active_sub.traffic_limit_bytes = active_sub.traffic_limit_bytes + traffic_bytes
+                    reward_detail = f"حجم {amount} مگابایت به اشتراک فعال شما اضافه شد."
+                    try:
+                        panel = await db.get(Panel, active_sub.panel_id)
+                        inbound = await db.get(Inbound, active_sub.inbound_id)
+                        if panel and inbound and panel.is_active:
+                            from app.integrations.xui.client import ThreeXUIClient
+                            from app.integrations.xui.adapter import ThreeXUIPanelAdapter
+                            from app.integrations.xui.schemas import ClientSpec
+                            client = ThreeXUIClient(
+                                base_url=panel.base_url,
+                                username=panel.username,
+                                password=panel.password,
+                                api_token=panel.api_token,
+                                login_secret=panel.login_secret,
+                            )
+                            adapter = ThreeXUIPanelAdapter(client)
+                            remote_inb = getattr(inbound, "remote_inbound_id", getattr(inbound, "panel_inbound_id", 1))
+                            expiry_ms = int(active_sub.expires_at.timestamp() * 1000) if active_sub.expires_at else 0
+                            spec = ClientSpec(
+                                id=active_sub.client_uuid,
+                                email=active_sub.client_email,
+                                flow="xtls-rprx-vision" if (active_sub.protocol or "").lower() == "vless" else "",
+                                limitIp=inbound.max_clients or 2,
+                                totalGB=active_sub.traffic_limit_bytes,
+                                expiryTime=expiry_ms,
+                                enable=True,
+                                subId=active_sub.subscription_token,
+                            )
+                            await adapter.update_client(remote_inb, active_sub.client_uuid, spec)
+                    except Exception as sync_err:
+                        logger.warning(f"Could not sync lucky wheel traffic to panel: {sync_err}")
             else:
                 # Fallback: Credit wallet with equivalent value (e.g. 5,000 Toman)
                 w_res = await db.execute(select(Wallet).where(Wallet.user_id == user.id))

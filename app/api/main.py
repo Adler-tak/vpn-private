@@ -29,6 +29,20 @@ async def _background_traffic_sync_loop():
         await asyncio.sleep(60)
 
 
+async def _background_expiration_check_loop():
+    """Periodically check and process expired subscriptions every 60 seconds (ensures time expirations are handled in docker-compose)."""
+    from app.workers.tasks.sync import _async_check_expired
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await _async_check_expired()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in background expiration check loop: {e}")
+        await asyncio.sleep(60)
+
+
 async def _background_inbound_sync_loop():
     """Periodically sync inbounds and metadata from active panels every 24 hours (preserving DB active states)."""
     from app.database.session import AsyncSessionLocal
@@ -183,16 +197,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Error ensuring database tables on startup: {e}")
 
     sync_task = asyncio.create_task(_background_traffic_sync_loop())
+    expiration_task = asyncio.create_task(_background_expiration_check_loop())
     inbound_sync_task = asyncio.create_task(_background_inbound_sync_loop())
     winback_task = asyncio.create_task(_background_winback_loop())
     smart_task = asyncio.create_task(_background_smart_maintenance_loop())
     yield
     sync_task.cancel()
+    expiration_task.cancel()
     inbound_sync_task.cancel()
     winback_task.cancel()
     smart_task.cancel()
     try:
-        await asyncio.gather(sync_task, inbound_sync_task, winback_task, smart_task, return_exceptions=True)
+        await asyncio.gather(sync_task, expiration_task, inbound_sync_task, winback_task, smart_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
     logger.info("Shutting down VPN Private API Service...")

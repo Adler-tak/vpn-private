@@ -1,4 +1,5 @@
 """Start and general informational handlers."""
+import html
 import re
 import logging
 from datetime import datetime, timezone
@@ -148,6 +149,11 @@ async def handle_start(
             await message.answer(gift_text, reply_markup=gift_inline_kb, parse_mode="HTML")
             return
 
+        if arg_val.lower() == "wallet":
+            from app.bot.handlers.wallet import show_wallet_menu
+            await show_wallet_menu(message, db_user, db_session)
+            return
+
         if arg_val.startswith("v_") or arg_val.startswith("v-"):
             voucher_code = arg_val[2:]
             await message.answer(
@@ -166,7 +172,8 @@ async def handle_start(
             return
 
     # 2. Check for referral code
-    referrer_code = command.args if command and command.args else None
+    raw_arg = command.args.strip() if command and command.args else None
+    referrer_code = raw_arg if raw_arg and raw_arg.lower() != "wallet" and not raw_arg.startswith(("v_", "v-", "g_", "gift_")) else None
     if referrer_code:
         user_service = UserService(db_session)
         # Register or assign referral if user was just created

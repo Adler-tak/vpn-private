@@ -3,6 +3,7 @@ import html
 import uuid
 import re
 import logging
+from typing import Optional, Union, Dict, Any, List
 from aiogram import Router, F, Bot
 from aiogram.filters import BaseFilter
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -233,10 +234,11 @@ async def process_admin_ticket_reply_input(
             logger.warning(f"Failed to record admin reply in DB: {e_db}")
 
     safe_reply_content = html.escape(reply_content)
+    ticket_label = f" به تیکت #{tid_match.group(1).lower()[:6]}" if tid_match else ""
     customer_msg = (
-        f"🎧 <b>پاسخ پشتیبانی VPN Private:</b>\n\n"
+        f"🎧 <b>پاسخ پشتیبانی VPN Private{ticket_label}:</b>\n\n"
         f"{safe_reply_content}\n\n"
-        f"💬 <i>در صورت نیاز به راهنمایی بیشتر، می‌توانید از بخش پشتیبانی تیکت جدید ارسال فرمایید.</i>"
+        f"💬 <i>در صورت نیاز می‌توانید مستقیماً به همین پیام پاسخ دهید.</i>"
     )
 
     try:
@@ -341,10 +343,11 @@ async def handle_admin_ticket_reply(
             logger.warning(f"Could not link reply to ticket: {e_log}")
 
     safe_reply_content = html.escape(reply_content)
+    ticket_label = f" به تیکت #{tid_match.group(1).lower()[:6]}" if tid_match else ""
     customer_msg = (
-        f"🎧 <b>پاسخ پشتیبانی VPN Private:</b>\n\n"
+        f"🎧 <b>پاسخ پشتیبانی VPN Private{ticket_label}:</b>\n\n"
         f"{safe_reply_content}\n\n"
-        f"💬 <i>در صورت نیاز به راهنمایی بیشتر، می‌توانید از بخش پشتیبانی تیکت جدید ارسال فرمایید.</i>"
+        f"💬 <i>در صورت نیاز می‌توانید مستقیماً به همین پیام پاسخ دهید.</i>"
     )
     try:
         if message.photo:
@@ -405,11 +408,26 @@ async def handle_customer_ticket_reply(
     if is_admin(db_user):
         return
 
-    # Find customer's latest active or open ticket
+    # Find ticket: check if user is replying to a message with a specific ticket number
     support_svc = SupportService(db_session)
     tickets = await support_svc.get_user_tickets(db_user.id)
-    active_tickets = [t for t in tickets if t.status in [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_FOR_CUSTOMER]]
-    target_ticket = active_tickets[0] if active_tickets else (tickets[0] if tickets else None)
+
+    reply_orig_text = ""
+    if message.reply_to_message:
+        reply_orig_text = message.reply_to_message.text or message.reply_to_message.caption or ""
+
+    target_ticket = None
+    tid_match = re.search(r"(?:تیکت|ticket)\s*#?([0-9a-fA-F]{6,36})", reply_orig_text, re.IGNORECASE)
+    if tid_match:
+        matched_hex = tid_match.group(1).lower()
+        for t in tickets:
+            if t.id.hex.startswith(matched_hex):
+                target_ticket = t
+                break
+
+    if not target_ticket:
+        active_tickets = [t for t in tickets if t.status in [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_FOR_CUSTOMER]]
+        target_ticket = active_tickets[0] if active_tickets else (tickets[0] if tickets else None)
 
     reply_content = message.text or message.caption or "پاسخ متنی/تصویری کاربر"
     photo_id = message.photo[-1].file_id if message.photo else (message.document.file_id if message.document else None)

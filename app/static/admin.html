@@ -5875,7 +5875,7 @@
       });
 
       try {
-        const url = status ? `/payments?status_filter=${status}` : '/payments';
+        const url = status ? `/payments?status_filter=${status}&limit=1000` : '/payments?limit=1000';
         const res = await apiFetch(url);
         cachedPayments = res.items || [];
         const grid = document.getElementById('payments-grid');
@@ -6024,7 +6024,7 @@
       let items = cachedPayments;
       if (!items || items.length === 0) {
         try {
-          const res = await apiFetch('/payments');
+          const res = await apiFetch('/payments?limit=10000');
           items = res.items || [];
           cachedPayments = items;
         } catch (e) {
@@ -6074,7 +6074,7 @@
 
     async function loadUsers(search = '') {
       try {
-        const url = search ? `/users?q=${encodeURIComponent(search)}` : '/users';
+        const url = search ? `/users?q=${encodeURIComponent(search)}&limit=1000` : '/users?limit=1000';
         const res = await apiFetch(url);
         cachedUsers = res.items || [];
         currentUsersPage = 1;
@@ -6524,7 +6524,7 @@
 
     async function loadSubscriptions() {
       try {
-        const res = await apiFetch('/subscriptions');
+        const res = await apiFetch('/subscriptions?limit=1000');
         cachedSubscriptions = res.items || [];
         filterAndRenderSubscriptions();
       } catch (e) { console.error(e); }
@@ -6992,7 +6992,7 @@
       });
 
       try {
-        const res = await apiFetch(`/tickets?status_filter=${status}`);
+        const res = await apiFetch(`/tickets?status_filter=${status}&limit=1000`);
         const grid = document.getElementById('tickets-grid');
         if (!grid) return;
 

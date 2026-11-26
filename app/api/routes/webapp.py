@@ -18,7 +18,7 @@ from app.database.models.product import Product
 from app.database.models.panel import Panel, Server, Inbound
 from app.database.models.bot import TelegramBot
 from app.core.config import settings, get_live_env
-from app.core.constants import SubscriptionStatus, OrderStatus, PaymentStatus, PaymentMethod
+from app.core.constants import SubscriptionStatus, OrderStatus, PaymentStatus, PaymentMethod, UserRole
 from app.core.security import validate_telegram_init_data
 from app.services.settings_service import get_effective_bot_username
 from app.services.lucky_wheel_service import LuckyWheelService
@@ -72,15 +72,26 @@ async def resolve_webapp_caller(
                 user_res = await db.execute(select(User).where(User.telegram_id == auth_tg_id))
                 user = user_res.scalars().first()
                 if not user:
+                    import secrets
                     user = User(
                         id=uuid.uuid4(),
                         telegram_id=auth_tg_id,
                         first_name=tg_user.get("first_name", "کاربر گرامی"),
                         last_name=tg_user.get("last_name"),
                         username=tg_user.get("username"),
+                        referral_code=f"ref{secrets.token_hex(4)}",
+                        role=UserRole.CUSTOMER,
                     )
                     db.add(user)
                     await db.flush()
+                    wallet = Wallet(id=uuid.uuid4(), user_id=user.id, balance_irr=0)
+                    db.add(wallet)
+                    await db.flush()
+                if user and (user.is_banned or not user.is_active):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="حساب کاربری شما مسدود شده است و امکان استفاده از خدمات را ندارید.",
+                    )
                 return user
         else:
             logger.warning("MiniApp authentication: Invalid or forged Telegram initData signature received!")
@@ -293,11 +304,16 @@ async def webapp_renew_subscription(
 
     # Authenticate caller
     auth_user = await resolve_webapp_caller(authorization, x_telegram_init_data, req.telegram_id, db)
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="احراز هویت تلگرام الزامی است.")
+    if auth_user.is_banned or not auth_user.is_active:
+        raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
+
     user = await db.get(User, sub.user_id)
     if not user:
         raise HTTPException(status_code=404, detail="کاربر مالک اشتراک یافت نشد.")
 
-    if auth_user and auth_user.id != user.id and auth_user.telegram_id != user.telegram_id:
+    if auth_user.id != user.id and auth_user.telegram_id != user.telegram_id:
         raise HTTPException(status_code=403, detail="شما دسترسی به تمدید این اشتراک را ندارید.")
 
     product = await db.get(Product, prod_uuid)
@@ -408,7 +424,12 @@ async def webapp_renew_subscription(
             await adapter.update_client(remote_inb, sub.client_uuid, spec)
             logger.info(f"MiniApp Renew: Successfully synced client {sub.client_email} to panel {panel.name}")
     except Exception as exc:
-        logger.warning(f"MiniApp Renew: Panel sync warning for sub {sub.id}: {exc}")
+        logger.error(f"MiniApp Renew: Panel sync failed for sub {sub.id}: {exc}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="خطا در برقراری ارتباط با سرور VPN. هزینه از حساب شما کسر نگردید و تمدید انجام نشد.",
+        )
 
     await db.commit()
 
@@ -466,10 +487,6 @@ async def webapp_purchase_subscription(
             "shortage_toman": diff,
         }
 
-    # Deduct wallet
-    if wallet:
-        wallet.balance_irr -= effective_price_irr
-
     from app.modules.orders.service import OrderService
     order_svc = OrderService(db)
     order = await order_svc.create_order(
@@ -511,32 +528,48 @@ async def _resolve_user_helper(
         try:
             auth_u = await resolve_webapp_caller(authorization, x_telegram_init_data, tg_id, db)
             if auth_u:
+                if auth_u.is_banned or not auth_u.is_active:
+                    raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
                 return auth_u
+        except HTTPException:
+            raise
         except Exception:
             pass
 
-    if tg_id:
-        user_res = await db.execute(select(User).where(User.telegram_id == tg_id))
-        user = user_res.scalars().first()
-        if user:
-            return user
-    if u_id_str:
-        try:
-            u_uuid = uuid.UUID(u_id_str)
-            return await db.get(User, u_uuid)
-        except Exception:
-            pass
+    app_env = getattr(settings, "ENVIRONMENT", "development")
+    if app_env in ("development", "test") or not settings.BOT_TOKEN:
+        if tg_id:
+            user_res = await db.execute(select(User).where(User.telegram_id == tg_id))
+            user = user_res.scalars().first()
+            if user:
+                if user.is_banned or not user.is_active:
+                    raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
+                return user
+        if u_id_str:
+            try:
+                u_uuid = uuid.UUID(u_id_str)
+                user = await db.get(User, u_uuid)
+                if user:
+                    if user.is_banned or not user.is_active:
+                        raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
+                    return user
+            except HTTPException:
+                raise
+            except Exception:
+                pass
     return None
 
 
 @router.get("/lucky-wheel")
 async def webapp_get_lucky_wheel(
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     tg_id: Optional[int] = Query(None),
     user_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Get lucky wheel status, countdown timer, and prize segments for current user."""
-    user = await _resolve_user_helper(tg_id, user_id, db)
+    user = await _resolve_user_helper(tg_id, user_id, db, authorization, x_telegram_init_data)
     if not user:
         cfg = await LuckyWheelService.get_config(db)
         return {
@@ -558,10 +591,12 @@ async def webapp_get_lucky_wheel(
 @router.post("/lucky-wheel/spin")
 async def webapp_spin_lucky_wheel(
     req: SpinWheelRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Execute wheel spin, calculate prize, deliver reward, and update user balance."""
-    user = await _resolve_user_helper(req.telegram_id, req.user_id, db)
+    user = await _resolve_user_helper(req.telegram_id, req.user_id, db, authorization, x_telegram_init_data)
     if not user:
         raise HTTPException(status_code=401, detail="کاربر احراز هویت نشد. لطفاً از طریق ربات تلگرام وارد شوید.")
 
@@ -590,10 +625,12 @@ class RedeemGiftWebRequest(BaseModel):
 @router.post("/gift-card/create")
 async def webapp_create_gift_card(
     req: CreateGiftCardWebRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Buy a Telegram gift subscription card using wallet balance."""
-    user = await _resolve_user_helper(req.telegram_id, req.user_id, db)
+    user = await _resolve_user_helper(req.telegram_id, req.user_id, db, authorization, x_telegram_init_data)
     if not user:
         raise HTTPException(status_code=401, detail="کاربر احراز هویت نشد.")
 
@@ -631,10 +668,12 @@ async def webapp_get_gift_card_info(
 @router.post("/gift-card/redeem")
 async def webapp_redeem_gift_card(
     req: RedeemGiftWebRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Redeem a gift card or voucher code directly within Mini App."""
-    user = await _resolve_user_helper(req.telegram_id, req.user_id, db)
+    user = await _resolve_user_helper(req.telegram_id, req.user_id, db, authorization, x_telegram_init_data)
     if not user:
         raise HTTPException(status_code=401, detail="جهت فعال‌سازی باید وارد حساب شوید.")
 
@@ -652,6 +691,8 @@ async def webapp_get_flash_sale() -> Dict[str, Any]:
 @router.post("/emergency-grace")
 async def webapp_activate_emergency_grace(
     req: EmergencyGraceRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Activate 24-hour, 1 GB emergency grace period for an expired or depleted subscription."""
@@ -669,7 +710,12 @@ async def webapp_activate_emergency_grace(
     if not user:
         raise HTTPException(status_code=404, detail="کاربر مالک اشتراک یافت نشد.")
 
-    if req.telegram_id and user.telegram_id != req.telegram_id:
+    auth_user = await resolve_webapp_caller(authorization, x_telegram_init_data, req.telegram_id, db)
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="احراز هویت تلگرام الزامی است.")
+    if auth_user.is_banned or not auth_user.is_active:
+        raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
+    if auth_user.id != user.id and auth_user.telegram_id != user.telegram_id:
         raise HTTPException(status_code=403, detail="شما دسترسی به این اشتراک ندارید.")
 
     result = await EmergencyGraceService.activate_emergency_grace(
@@ -692,6 +738,8 @@ class ToggleAutoRenewRequest(BaseModel):
 @router.post("/auto-renew/toggle")
 async def webapp_toggle_auto_renew(
     req: ToggleAutoRenewRequest,
+    authorization: Optional[str] = Header(None),
+    x_telegram_init_data: Optional[str] = Header(None, alias="X-Telegram-Init-Data"),
     db: AsyncSession = Depends(get_db),
 ) -> Dict[str, Any]:
     """Toggle auto-renew flag on user's subscription."""
@@ -705,8 +753,12 @@ async def webapp_toggle_auto_renew(
     if not sub:
         raise HTTPException(status_code=404, detail="اشتراک مورد نظر یافت نشد.")
 
-    user = await _resolve_user_helper(req.telegram_id, req.user_id, db)
-    if not user or user.id != sub.user_id:
+    auth_user = await resolve_webapp_caller(authorization, x_telegram_init_data, req.telegram_id, db)
+    if not auth_user:
+        raise HTTPException(status_code=401, detail="احراز هویت تلگرام الزامی است.")
+    if auth_user.is_banned or not auth_user.is_active:
+        raise HTTPException(status_code=403, detail="حساب کاربری شما مسدود شده است.")
+    if auth_user.id != sub.user_id and (not sub.user or auth_user.telegram_id != sub.user.telegram_id):
         raise HTTPException(status_code=403, detail="شما دسترسی به این اشتراک ندارید.")
 
     result = await AutoRenewService.toggle_auto_renew(

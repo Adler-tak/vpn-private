@@ -187,6 +187,7 @@ class AutoRenewService:
                 sub.alert_time_sent = False
 
                 # 3. Sync with remote panel if available
+                panel_sync_ok = True
                 try:
                     panel = await session.get(Panel, sub.panel_id)
                     inbound = await session.get(Inbound, sub.inbound_id)
@@ -220,7 +221,16 @@ class AutoRenewService:
                             spec=spec,
                         )
                 except Exception as p_err:
-                    logger.warning(f"Could not sync auto-renewal to panel {sub.panel_id}: {p_err}")
+                    logger.error(f"Could not sync auto-renewal to panel {sub.panel_id}: {p_err}")
+                    panel_sync_ok = False
+
+                if not panel_sync_ok:
+                    # Rollback wallet deduction and subscription state on panel error
+                    if wallet:
+                        wallet.balance_irr += (effective_price_toman * 10)
+                    sub.traffic_limit_bytes = (sub.traffic_limit_bytes or 0) - add_traffic_bytes
+                    sub.expires_at = current_expiry
+                    continue
 
                 renewed_count += 1
                 logger.info(
