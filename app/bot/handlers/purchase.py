@@ -305,6 +305,20 @@ async def proceed_to_order_confirmation(
     loc_admin_display = "🌐 تمام لوکیشن‌های پلن (نامحدود)" if is_unlimited else html.escape(str(location_code))
     traffic_admin_display = "♾ نامحدود" if is_unlimited else f"{product.traffic_gb} گیگابایت"
 
+    coupon_admin_line = ""
+    coupon_user_line = ""
+    if coupon_code:
+        if order.coupon_id:
+            coupon_admin_line = f"🎟 <b>کد تخفیف اعمال‌شده:</b> <code>{html.escape(coupon_code)}</code>\n"
+            orig_toman = (product.price_irr // 10) if product and product.price_irr else order.total_price_toman
+            diff_toman = max(0, orig_toman - order.total_price_toman)
+            coupon_user_line = (
+                f"🎉 <b>کد تخفیف اعمال شد:</b> <code>{html.escape(coupon_code)}</code> (تخفیف: {diff_toman:,} تومان)\n"
+            )
+        else:
+            coupon_admin_line = f"⚠️ <b>کد تخفیف ناموفق:</b> <code>{html.escape(coupon_code)}</code>\n"
+            coupon_user_line = f"⚠️ <i>توجه: کد تخفیف «{html.escape(coupon_code)}» نامعتبر یا منقضی شده است.</i>\n"
+
     admin_order_alert = (
         f"🛒 <b>سفارش جدید در ربات ثبت شد!</b>\n\n"
         f"👤 <b>مشتری:</b> {u_name} ({u_username})\n"
@@ -312,6 +326,7 @@ async def proceed_to_order_confirmation(
         f"📦 <b>پلن:</b> {html.escape(product.name)}\n"
         f"📊 <b>ترافیک:</b> <b>{traffic_admin_display}</b>\n"
         f"🌍 <b>لوکیشن:</b> <code>{loc_admin_display}</code>\n"
+        f"{coupon_admin_line}"
         f"💰 <b>مبلغ قابل پرداخت:</b> <b>{order.total_price_toman:,} تومان</b>\n"
         f"🔖 <b>شناسه سفارش:</b> <code>{order.id}</code>\n\n"
         f"⏳ کاربر به مرحله انتخاب روش پرداخت و ارسال فیش منتقل شد."
@@ -347,6 +362,7 @@ async def proceed_to_order_confirmation(
         f"⏳ مدت اعتبار: <b>{product.duration_days} روز</b>\n"
         f"📊 حجم ترافیک: {traffic_display}\n"
         f"🌍 لوکیشن: {loc_display}\n"
+        f"{coupon_user_line}"
         f"💰 مبلغ نهایی قابل پرداخت: <b>{order.total_price_toman:,} تومان</b>\n"
         f"💳 موجودی کیف پول شما: <b>{user_wallet.balance_toman if user_wallet else 0:,} تومان</b>\n"
         f"{c2c_info}\n"

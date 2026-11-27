@@ -1704,6 +1704,7 @@ async def list_payments(
         .options(
             selectinload(Payment.user),
             selectinload(Payment.order).selectinload(Order.product),
+            selectinload(Payment.order).selectinload(Order.coupon),
             selectinload(Payment.receipt),
         )
     )
@@ -1722,6 +1723,16 @@ async def list_payments(
         tx_ref = p.receipt.transaction_ref if p.receipt else (p.reference_id or "—")
         has_receipt = bool(p.receipt and (p.receipt.telegram_file_id or (p.receipt.transaction_ref and p.receipt.transaction_ref != "—")))
 
+        coupon_code = None
+        coupon_discount_pct = None
+        orig_amount_toman = p.amount_toman
+        if p.order:
+            if p.order.product and p.order.product.price_irr:
+                orig_amount_toman = p.order.product.price_irr // 10
+            if p.order.coupon:
+                coupon_code = p.order.coupon.code
+                coupon_discount_pct = p.order.coupon.discount_percent
+
         items.append({
             "id": str(p.id),
             "order_id": str(p.order_id) if p.order_id else None,
@@ -1730,6 +1741,9 @@ async def list_payments(
             "customer_telegram_id": p.user.telegram_id if p.user else None,
             "product_name": product_name,
             "amount_toman": p.amount_toman,
+            "original_amount_toman": orig_amount_toman,
+            "coupon_code": coupon_code,
+            "coupon_discount_percent": coupon_discount_pct,
             "provider": p.provider,
             "status": p.status,
             "tracking_code": p.tracking_code,
@@ -1772,7 +1786,11 @@ async def get_telegram_file_proxy(
 
             file_res = await client.get(download_url)
             content_type = file_res.headers.get("content-type", "image/jpeg")
-            return Response(content=file_res.content, media_type=content_type)
+            return Response(
+                content=file_res.content,
+                media_type=content_type,
+                headers={"Content-Disposition": "inline"},
+            )
     except HTTPException:
         raise
     except Exception as exc:
@@ -4736,6 +4754,194 @@ async def list_servers(
     return {"servers": items, "inbounds": inb_items}
 
 
+@router.get("/servers/{server_id}/clients")
+async def get_server_clients(
+    server_id: str,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all clients (active subscriptions) created/allocated on a specific server."""
+    server = None
+    try:
+        s_uuid = uuid.UUID(server_id)
+        server = await db.get(Server, s_uuid)
+    except Exception:
+        pass
+    if not server:
+        server_res = await db.execute(select(Server).where(Server.id == server_id))
+        server = server_res.scalars().first()
+
+    if not server:
+        raise HTTPException(status_code=404, detail="سرور مورد نظر یافت نشد.")
+
+    conditions = [Subscription.server_id == server.id]
+    if getattr(server, "inbound_id", None):
+        conditions.append(Subscription.inbound_id == server.inbound_id)
+
+    query = (
+        select(
+            Subscription.id,
+            Subscription.client_email,
+            Subscription.client_uuid,
+            Subscription.subscription_token,
+            Subscription.status,
+            Subscription.protocol,
+            Subscription.traffic_used_bytes,
+            Subscription.traffic_limit_bytes,
+            Subscription.expires_at,
+            User.username,
+            User.telegram_id,
+            User.first_name,
+        )
+        .outerjoin(User, Subscription.user_id == User.id)
+        .where(or_(*conditions))
+    )
+    results = (await db.execute(query)).all()
+
+    clients_data = []
+    for row in results:
+        (
+            sub_id,
+            client_email,
+            client_uuid,
+            subscription_token,
+            status,
+            protocol,
+            used_bytes,
+            limit_bytes,
+            expires_at,
+            username,
+            telegram_id,
+            first_name,
+        ) = row
+
+        used_bytes = used_bytes or 0
+        limit_bytes = limit_bytes or 0
+        limit_gb = round(limit_bytes / (1024**3), 2) if limit_bytes else 0
+        used_gb = round(used_bytes / (1024**3), 2) if used_bytes else 0
+
+        clients_data.append({
+            "id": str(sub_id),
+            "client_email": client_email,
+            "client_uuid": client_uuid,
+            "subscription_token": subscription_token,
+            "status": status,
+            "protocol": protocol,
+            "traffic_used_bytes": used_bytes,
+            "traffic_limit_bytes": limit_bytes,
+            "used_formatted": f"{used_gb} GB",
+            "limit_formatted": f"{limit_gb} GB" if limit_gb > 0 else "نامحدود",
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "username": username,
+            "telegram_id": telegram_id,
+            "first_name": first_name,
+        })
+
+    active_cnt = sum(1 for c in clients_data if c["status"] == "ACTIVE")
+    return {
+        "server_id": str(server.id),
+        "server_name": server.name,
+        "location_code": server.location_code,
+        "location_name": server.location_name,
+        "flag_emoji": server.flag_emoji,
+        "total_clients": len(clients_data),
+        "active_clients": active_cnt,
+        "clients": clients_data,
+    }
+
+
+@router.get("/inbounds/{inbound_id}/clients")
+async def get_inbound_clients(
+    inbound_id: str,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieve all clients (subscriptions) associated with an inbound."""
+    inbound = None
+    try:
+        ib_uuid = uuid.UUID(inbound_id)
+        inbound = await db.get(Inbound, ib_uuid)
+    except Exception:
+        pass
+    if not inbound:
+        ib_res = await db.execute(select(Inbound).where(Inbound.id == inbound_id))
+        inbound = ib_res.scalars().first()
+
+    if not inbound:
+        raise HTTPException(status_code=404, detail="اینباند مورد نظر یافت نشد.")
+
+    query = (
+        select(
+            Subscription.id,
+            Subscription.client_email,
+            Subscription.client_uuid,
+            Subscription.subscription_token,
+            Subscription.status,
+            Subscription.protocol,
+            Subscription.traffic_used_bytes,
+            Subscription.traffic_limit_bytes,
+            Subscription.expires_at,
+            User.username,
+            User.telegram_id,
+            User.first_name,
+        )
+        .outerjoin(User, Subscription.user_id == User.id)
+        .where(Subscription.inbound_id == inbound.id)
+    )
+    results = (await db.execute(query)).all()
+
+    clients_data = []
+    for row in results:
+        (
+            sub_id,
+            client_email,
+            client_uuid,
+            subscription_token,
+            status,
+            protocol,
+            used_bytes,
+            limit_bytes,
+            expires_at,
+            username,
+            telegram_id,
+            first_name,
+        ) = row
+
+        used_bytes = used_bytes or 0
+        limit_bytes = limit_bytes or 0
+        limit_gb = round(limit_bytes / (1024**3), 2) if limit_bytes else 0
+        used_gb = round(used_bytes / (1024**3), 2) if used_bytes else 0
+
+        clients_data.append({
+            "id": str(sub_id),
+            "client_email": client_email,
+            "client_uuid": client_uuid,
+            "subscription_token": subscription_token,
+            "status": status,
+            "protocol": protocol,
+            "traffic_used_bytes": used_bytes,
+            "traffic_limit_bytes": limit_bytes,
+            "used_formatted": f"{used_gb} GB",
+            "limit_formatted": f"{limit_gb} GB" if limit_gb > 0 else "نامحدود",
+            "expires_at": expires_at.isoformat() if expires_at else None,
+            "username": username,
+            "telegram_id": telegram_id,
+            "first_name": first_name,
+        })
+
+    active_cnt = sum(1 for c in clients_data if c["status"] == "ACTIVE")
+    return {
+        "inbound_id": str(inbound.id),
+        "remote_id": inbound.remote_inbound_id,
+        "remark": inbound.remark or inbound.tag,
+        "port": inbound.port,
+        "protocol": inbound.protocol,
+        "total_clients": len(clients_data),
+        "active_clients": active_cnt,
+        "clients": clients_data,
+    }
+
+
 @router.post("/servers/disable-inactive-inbound-servers")
 async def disable_inactive_inbound_servers(
     admin: User = Depends(get_current_admin),
@@ -6272,7 +6478,9 @@ async def list_coupons(
             "discount_amount_toman": c.discount_amount_irr // 10 if c.discount_amount_irr else 0,
             "max_uses": c.max_uses,
             "current_uses": c.current_uses,
+            "used_count": c.current_uses,
             "valid_until": c.valid_until.isoformat() if c.valid_until else None,
+            "expires_at": c.valid_until.strftime("%Y-%m-%d %H:%M") if c.valid_until else "نامحدود",
             "is_active": c.is_active,
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }

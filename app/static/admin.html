@@ -4829,6 +4829,107 @@
   <div id="toast" class="fixed bottom-6 left-6 z-50 hidden max-w-sm px-4 py-3 rounded-2xl text-xs font-bold text-white shadow-2xl transition-all duration-300 flex items-center gap-2"></div>
 
 
+  <!-- Modal: Active Clients for Server / Inbound -->
+  <div id="modal-server-clients" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" onclick="if(event.target === this) closeServerClientsModal()">
+    <div class="w-full max-w-4xl p-6 rounded-2xl glass-card space-y-4 border border-indigo-500/30 shadow-2xl animate-in fade-in duration-200 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3 shrink-0">
+        <div class="flex items-center gap-2.5">
+          <span id="modal-clients-flag" class="text-2xl">🌐</span>
+          <div>
+            <h4 class="text-sm font-bold text-white flex items-center gap-2">
+              <span id="modal-clients-title">کلاینت‌های فعال</span>
+              <span id="modal-clients-code" class="text-xs font-mono px-2 py-0.5 rounded-md bg-slate-800 text-indigo-300 border border-slate-700"></span>
+            </h4>
+            <p id="modal-clients-subtitle" class="text-[11px] text-slate-400 mt-0.5">لیست کاربران و سرویس‌های ساخته‌شده روی این لوکیشن / اینباند</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 text-xs font-bold">
+            کل: <b id="modal-clients-total">0</b>
+          </span>
+          <span class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
+            فعال: <b id="modal-clients-active">0</b>
+          </span>
+          <button type="button" onclick="closeServerClientsModal()" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="بستن (Esc)">
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="shrink-0 flex items-center gap-2 bg-slate-900/90 border border-slate-700/80 rounded-xl px-3 py-2 text-xs">
+        <i class="bi bi-search text-slate-400"></i>
+        <input type="text" id="modal-clients-search" oninput="filterModalClients()" placeholder="جستجو بر اساس ایمیل، نام کاربری یا شناسه تلگرام..." class="w-full bg-transparent text-white focus:outline-none placeholder:text-slate-500 text-xs">
+        <span id="modal-clients-filter-count" class="text-[11px] text-slate-500 shrink-0"></span>
+      </div>
+
+      <!-- Table Container -->
+      <div class="flex-1 overflow-auto rounded-xl border border-slate-800 min-h-[200px]">
+        <table class="w-full text-right text-xs">
+          <thead class="sticky top-0 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 text-slate-400">
+            <tr>
+              <th class="p-3 font-semibold">شناسه / ایمیل کلاینت</th>
+              <th class="p-3 font-semibold">کاربر / تلگرام</th>
+              <th class="p-3 font-semibold text-center">مصرف ترافیک</th>
+              <th class="p-3 font-semibold text-center">انقضا</th>
+              <th class="p-3 font-semibold text-center">وضعیت</th>
+              <th class="p-3 font-semibold text-center">توکن اشتراک</th>
+            </tr>
+          </thead>
+          <tbody id="modal-clients-tbody" class="divide-y divide-slate-800/60 font-mono text-[11px]">
+            <tr>
+              <td colspan="6" class="p-8 text-center text-slate-500 font-sans">
+                <i class="bi bi-arrow-repeat animate-spin text-xl inline-block mb-1"></i>
+                <div class="text-xs">در حال دریافت لیست کلاینت‌ها...</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-800 shrink-0">
+        <span>اطلاعات به‌صورت زنده از پنل ۳X-UI و دیتابیس همگام‌سازی شده است.</span>
+        <button type="button" onclick="closeServerClientsModal()" class="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition">
+          بستن پنجره
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Modal: Receipt Image Lightbox Popup -->
+  <div id="modal-receipt-lightbox" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md transition-all duration-200" onclick="if(event.target === this) closeReceiptLightbox()">
+    <div class="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl glass-card bg-slate-900/95 border border-indigo-500/30 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div class="w-full flex items-center justify-between p-3.5 sm:px-5 border-b border-slate-800 shrink-0">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+            <i class="bi bi-receipt text-sm"></i>
+          </div>
+          <div>
+            <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+              <span>پیش‌نمایش تصویر فیش واریزی</span>
+              <span id="receipt-lightbox-code" class="hidden text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-indigo-300 border border-slate-700"></span>
+            </h4>
+            <p class="text-[10px] text-slate-400 mt-0.5">تصویر فیش ارسالی توسط کاربر در ربات تلگرام</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <a id="receipt-lightbox-open-external" href="#" target="_blank" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 shadow-sm" title="باز کردن تصویر در تب جدید">
+            <i class="bi bi-box-arrow-up-right text-[11px]"></i>
+            <span class="hidden sm:inline">تب جدید</span>
+          </a>
+          <button type="button" onclick="closeReceiptLightbox()" class="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="بستن (Esc)">
+            <i class="bi bi-x-lg text-sm"></i>
+          </button>
+        </div>
+      </div>
+      <div class="relative w-full flex-1 flex items-center justify-center overflow-auto p-4 min-h-[220px] max-h-[78vh] bg-slate-950/60 select-none">
+        <img id="receipt-lightbox-img" src="" alt="فیش واریزی" class="max-h-[74vh] w-auto max-w-full rounded-xl object-contain shadow-2xl border border-slate-800/80 transition" />
+      </div>
+    </div>
+  </div>
+
+
   <!-- Modal: Google Authenticator Setup -->
   <div id="modal-google-auth" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
     <div class="w-full max-w-md p-6 rounded-2xl glass-card space-y-4 border border-purple-500/30 animate-in fade-in duration-200">
@@ -6062,9 +6163,19 @@
                 <span class="text-slate-400">پلن:</span>
                 <span class="font-bold text-white">${escapeHtml(p.product_name)}</span>
               </div>
-              <div class="flex justify-between">
+              <div class="flex justify-between items-baseline">
                 <span class="text-slate-400">مبلغ:</span>
-                <span class="font-black text-emerald-400 text-sm">${formatNumber(p.amount_toman)} تومان</span>
+                <div class="text-left">
+                  ${p.coupon_code ? `
+                    <div class="flex items-center gap-1.5 justify-end mb-0.5">
+                      <span class="text-[10px] text-slate-500 line-through">${formatNumber(p.original_amount_toman || p.amount_toman)}</span>
+                      <span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        🎟 ${escapeHtml(p.coupon_code)}${p.coupon_discount_percent ? ` (${p.coupon_discount_percent}%)` : ''}
+                      </span>
+                    </div>
+                  ` : ''}
+                  <span class="font-black text-emerald-400 text-sm">${formatNumber(p.amount_toman)} تومان</span>
+                </div>
               </div>
               <div class="flex justify-between">
                 <span class="text-slate-400">شناسه تلگرام:</span>
@@ -6088,13 +6199,16 @@
 
             ${p.receipt_photo ? `
               <div class="p-2 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
-                <div class="text-[10px] text-slate-400 flex justify-between">
+                <div class="text-[10px] text-slate-400 flex justify-between items-center">
                   <span>🖼 فیش ارسالی کاربر</span>
-                  <a href="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" target="_blank" class="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold">بزرگنمایی &larr;</a>
+                  <button type="button" onclick="openReceiptLightbox('/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 transition">
+                    <i class="bi bi-arrows-fullscreen text-[9px]"></i>
+                    <span>بزرگنمایی &larr;</span>
+                  </button>
                 </div>
-                <a href="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" target="_blank" class="block overflow-hidden rounded-lg bg-slate-950 border border-slate-800 max-h-36">
-                  <img src="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" alt="فیش واریزی" class="w-full h-32 object-cover hover:scale-105 transition" loading="lazy" />
-                </a>
+                <div onclick="openReceiptLightbox('/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="cursor-pointer block overflow-hidden rounded-lg bg-slate-950 border border-slate-800 max-h-36 hover:border-indigo-500/50 transition group">
+                  <img src="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" alt="فیش واریزی" class="w-full h-32 object-cover group-hover:scale-105 transition duration-300" loading="lazy" />
+                </div>
               </div>
             ` : ''}
 
@@ -7604,17 +7718,24 @@
                 ${getProtocolBadge(ib.protocol)}
               </div>
             </div>
-            <button onclick="toggleInbound('${ib.id}')" class="px-2 py-0.5 rounded-md text-[10px] font-bold transition flex-shrink-0 ${ib.is_active ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-500 border border-slate-700'}">
-              ${ib.is_active ? '🟢 فعال' : '🔴 خاموش'}
+            <button onclick="toggleInbound('${ib.id}')" class="px-2.5 py-1 rounded-xl text-[10px] font-bold transition flex-shrink-0 flex items-center gap-1.5 shadow-sm ${ib.is_active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'}">
+              <span class="w-1.5 h-1.5 rounded-full ${ib.is_active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+              <span>${ib.is_active ? 'روشن' : 'خاموش'}</span>
             </button>
           </div>
-          <div class="pt-2 border-t border-slate-800/80 text-[10px]">
-            <span class="text-slate-500 block mb-1">سرور(های) متصل:</span>
-            ${ib.connected_servers && ib.connected_servers.length ? `
-              <div class="flex flex-wrap gap-1">
-                ${ib.connected_servers.map(srv => `<span class="px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-700/60 font-medium">${escapeHtml(srv)}</span>`).join('')}
-              </div>
-            ` : `<span class="text-slate-600 italic">هیچ سروری متصل نیست</span>`}
+          <div class="pt-2 border-t border-slate-800/80 text-[10px] space-y-2">
+            <div>
+              <span class="text-slate-500 block mb-1">سرور(های) متصل:</span>
+              ${ib.connected_servers && ib.connected_servers.length ? `
+                <div class="flex flex-wrap gap-1">
+                  ${ib.connected_servers.map(srv => `<span class="px-1.5 py-0.5 rounded bg-slate-800/90 text-slate-200 border border-slate-700/60 font-medium">${escapeHtml(srv)}</span>`).join('')}
+                </div>
+              ` : `<span class="text-slate-600 italic">هیچ سروری متصل نیست</span>`}
+            </div>
+            <button type="button" onclick="openInboundClientsModal('${ib.id}', '${escapeHtml(ib.remark || ib.tag || 'اینباند')}', '${ib.remote_id}', '${escapeHtml(ib.protocol || '')}')" class="w-full py-1.5 px-2 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+              <i class="bi bi-people-fill text-indigo-400"></i>
+              <span>مشاهده کلاینت‌های متصل</span>
+            </button>
           </div>
         </div>
       `).join('');
@@ -7689,8 +7810,9 @@
                     <i class="bi bi-exclamation-triangle-fill text-amber-400"></i> نیاز به خاموش‌سازی
                   </span>
                 ` : ''}
-                <button onclick="toggleServer('${s.id}')" class="px-2.5 py-1 rounded-xl text-[10px] font-bold transition ${s.is_active ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 hover:bg-emerald-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'}">
-                  ${s.is_active ? '🟢 فعال' : '🔴 خاموش'}
+                <button onclick="toggleServer('${s.id}')" class="px-2.5 py-1 rounded-xl text-[10px] font-bold transition flex items-center gap-1.5 shadow-sm ${s.is_active ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-white'}">
+                  <span class="w-1.5 h-1.5 rounded-full ${s.is_active ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+                  <span>${s.is_active ? 'روشن (فعال)' : 'خاموش'}</span>
                 </button>
               </div>
             </div>
@@ -7721,6 +7843,10 @@
                 </span>
               ` : `<span class="text-slate-600 text-[10px]">بدون اینباند مستقیم</span>`}
             </div>
+            <button type="button" onclick="openServerClientsModal('${s.id}', '${escapeHtml(s.location_name || s.name)}', '${s.flag || '🌐'}', '${escapeHtml(s.location_code || s.host)}')" class="w-full py-1.5 px-3 rounded-xl bg-indigo-600/15 hover:bg-indigo-600/25 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
+              <i class="bi bi-people-fill text-indigo-400"></i>
+              <span>مشاهده کلاینت‌های فعال (${s.clients})</span>
+            </button>
           </div>
         `}).join('');
     }
@@ -9470,10 +9596,14 @@
                   <div class="text-[11px] text-slate-400 mt-0.5">${nameEn}</div>
                 </div>
               </div>
-              <label class="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleBalancerLocationActive('${tag}', this.checked)" class="sr-only peer">
-                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
-              </label>
+              <button type="button" onclick="toggleBalancerLocationActive('${tag}', ${!isActive})" class="px-2.5 py-1 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 shadow-sm ${
+                isActive 
+                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25' 
+                  : 'bg-slate-800/80 text-slate-400 border border-slate-700 hover:text-white hover:bg-slate-700'
+              }">
+                <span class="w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}"></span>
+                <span>${isActive ? 'روشن (فعال)' : 'خاموش'}</span>
+              </button>
             </div>
 
             <div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -9522,6 +9652,242 @@
         showToast(err.message || 'خطا در ذخیره ارائه‌دهنده', 'error');
       }
     }
+
+    // --- Active Clients Inspection for Servers & Inbounds ---
+    let _currentModalClients = [];
+
+    async function openServerClientsModal(serverId, name, flag, code) {
+      const modal = document.getElementById('modal-server-clients');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      const flagEl = document.getElementById('modal-clients-flag');
+      const titleEl = document.getElementById('modal-clients-title');
+      const codeEl = document.getElementById('modal-clients-code');
+      const subEl = document.getElementById('modal-clients-subtitle');
+      const searchEl = document.getElementById('modal-clients-search');
+      const cntEl = document.getElementById('modal-clients-filter-count');
+
+      if (flagEl) flagEl.textContent = flag || '🌐';
+      if (titleEl) titleEl.textContent = name || 'کلاینت‌های سرور';
+      if (codeEl) codeEl.textContent = code || '';
+      if (subEl) subEl.textContent = `کلاینت‌های ساخته‌شده روی لوکیشن ${name}`;
+      if (searchEl) searchEl.value = '';
+      if (cntEl) cntEl.textContent = '';
+
+      const tbody = document.getElementById('modal-clients-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="p-8 text-center text-slate-500 font-sans">
+              <i class="bi bi-arrow-repeat animate-spin text-xl inline-block mb-1"></i>
+              <div class="text-xs">در حال دریافت کلاینت‌های سرور...</div>
+            </td>
+          </tr>
+        `;
+      }
+
+      try {
+        const res = await apiFetch(`/servers/${serverId}/clients`);
+        _currentModalClients = res.clients || [];
+        document.getElementById('modal-clients-total').textContent = res.total_count ?? _currentModalClients.length;
+        document.getElementById('modal-clients-active').textContent = res.active_count ?? _currentModalClients.filter(c => c.status === 'ACTIVE').length;
+        renderModalClientsTable(_currentModalClients);
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-rose-400 text-xs">خطا در دریافت کلاینت‌ها: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    async function openInboundClientsModal(inboundId, remark, remoteId, proto) {
+      const modal = document.getElementById('modal-server-clients');
+      if (!modal) return;
+      modal.classList.remove('hidden');
+
+      const flagEl = document.getElementById('modal-clients-flag');
+      const titleEl = document.getElementById('modal-clients-title');
+      const codeEl = document.getElementById('modal-clients-code');
+      const subEl = document.getElementById('modal-clients-subtitle');
+      const searchEl = document.getElementById('modal-clients-search');
+      const cntEl = document.getElementById('modal-clients-filter-count');
+
+      if (flagEl) flagEl.textContent = '🔌';
+      if (titleEl) titleEl.textContent = remark || `اینباند #${remoteId}`;
+      if (codeEl) codeEl.textContent = `#${remoteId} (${proto || 'VLESS'})`;
+      if (subEl) subEl.textContent = `کلاینت‌های متصل به اینباند پورت و ریموت ۳X-UI`;
+      if (searchEl) searchEl.value = '';
+      if (cntEl) cntEl.textContent = '';
+
+      const tbody = document.getElementById('modal-clients-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="p-8 text-center text-slate-500 font-sans">
+              <i class="bi bi-arrow-repeat animate-spin text-xl inline-block mb-1"></i>
+              <div class="text-xs">در حال دریافت کلاینت‌های اینباند...</div>
+            </td>
+          </tr>
+        `;
+      }
+
+      try {
+        const res = await apiFetch(`/inbounds/${inboundId}/clients`);
+        _currentModalClients = res.clients || [];
+        document.getElementById('modal-clients-total').textContent = res.total_count ?? _currentModalClients.length;
+        document.getElementById('modal-clients-active').textContent = res.active_count ?? _currentModalClients.filter(c => c.status === 'ACTIVE').length;
+        renderModalClientsTable(_currentModalClients);
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-rose-400 text-xs">خطا در دریافت کلاینت‌ها: ${escapeHtml(err.message)}</td></tr>`;
+      }
+    }
+
+    function closeServerClientsModal() {
+      const modal = document.getElementById('modal-server-clients');
+      if (modal) modal.classList.add('hidden');
+      _currentModalClients = [];
+    }
+
+    function filterModalClients() {
+      const q = (document.getElementById('modal-clients-search')?.value || '').trim().toLowerCase();
+      if (!q) {
+        renderModalClientsTable(_currentModalClients);
+        const cntEl = document.getElementById('modal-clients-filter-count');
+        if (cntEl) cntEl.textContent = '';
+        return;
+      }
+      const filtered = _currentModalClients.filter(c => {
+        return (
+          (c.client_email && c.client_email.toLowerCase().includes(q)) ||
+          (c.username && c.username.toLowerCase().includes(q)) ||
+          (c.telegram_id && String(c.telegram_id).includes(q)) ||
+          (c.client_uuid && c.client_uuid.toLowerCase().includes(q)) ||
+          (c.subscription_token && c.subscription_token.toLowerCase().includes(q))
+        );
+      });
+      renderModalClientsTable(filtered);
+      const cntEl = document.getElementById('modal-clients-filter-count');
+      if (cntEl) cntEl.textContent = `${filtered.length} مورد`;
+    }
+
+    function renderModalClientsTable(list) {
+      const tbody = document.getElementById('modal-clients-tbody');
+      if (!tbody) return;
+
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" class="p-8 text-center text-slate-500 font-sans text-xs">
+              هیچ کلاینت فعالی روی این اینباند/سرور یافت نشد.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = list.map(c => {
+        const isActive = c.status === 'ACTIVE';
+        const usedBytes = c.traffic_used_bytes || 0;
+        const limitBytes = c.traffic_limit_bytes || 0;
+        const pct = limitBytes > 0 ? Math.min(100, Math.round((usedBytes / limitBytes) * 100)) : 0;
+        const barColor = pct >= 85 ? 'bg-rose-500' : (pct >= 60 ? 'bg-amber-400' : 'bg-emerald-400');
+
+        let expStr = 'نامحدود';
+        if (c.expires_at) {
+          try {
+            const d = new Date(c.expires_at);
+            expStr = d.toLocaleDateString('fa-IR');
+          } catch (e) {
+            expStr = c.expires_at.slice(0, 10);
+          }
+        }
+
+        return `
+          <tr class="hover:bg-slate-900/60 transition">
+            <td class="p-3">
+              <div class="font-bold text-white text-xs">${escapeHtml(c.client_email || '—')}</div>
+              <div class="text-[10px] text-slate-500 font-mono mt-0.5 truncate max-w-[200px]" title="${escapeHtml(c.client_uuid || '')}">${c.client_uuid ? c.client_uuid.slice(0, 13) + '...' : '—'}</div>
+            </td>
+            <td class="p-3 font-sans text-xs">
+              <div class="text-slate-300 font-medium">${c.username ? `@${escapeHtml(c.username)}` : 'کاربر بات'}</div>
+              <div class="text-[10px] text-slate-500 font-mono mt-0.5">${c.telegram_id ? `ID: ${c.telegram_id}` : '—'}</div>
+            </td>
+            <td class="p-3 text-center">
+              <div class="text-[11px] font-bold ${pct >= 85 ? 'text-rose-400' : 'text-slate-200'}">
+                ${c.traffic_used_formatted || '0 MB'} / ${c.traffic_limit_formatted || '♾️'}
+              </div>
+              ${limitBytes > 0 ? `
+                <div class="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden mx-auto mt-1">
+                  <div class="h-full ${barColor}" style="width: ${pct}%"></div>
+                </div>
+              ` : ''}
+            </td>
+            <td class="p-3 text-center font-sans text-slate-400 text-xs">
+              ${expStr}
+            </td>
+            <td class="p-3 text-center">
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                isActive ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+              }">
+                ${isActive ? 'فعال' : 'غیرفعال'}
+              </span>
+            </td>
+            <td class="p-3 text-center">
+              ${c.subscription_token ? `
+                <button type="button" onclick="copyClientText('${escapeHtml(c.subscription_token)}', 'توکن اشتراک')" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 text-[10px] font-mono transition flex items-center gap-1 mx-auto" title="کپی توکن اشتراک">
+                  <i class="bi bi-link-45deg"></i>
+                  <span>کپی توکن</span>
+                </button>
+              ` : `<span class="text-slate-600">—</span>`}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function copyClientText(text, label) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast(`${label} در کلیپ‌بورد کپی شد.`, 'success');
+      }).catch(() => {
+        showToast(`خطا در کپی ${label}`, 'error');
+      });
+    }
+
+    // --- Card-to-Card Receipt Lightbox Popup ---
+    function openReceiptLightbox(imgUrl, trackingCode) {
+      const modal = document.getElementById('modal-receipt-lightbox');
+      const img = document.getElementById('receipt-lightbox-img');
+      const code = document.getElementById('receipt-lightbox-code');
+      const ext = document.getElementById('receipt-lightbox-open-external');
+      if (!modal || !img) return;
+
+      img.src = imgUrl;
+      if (code) {
+        if (trackingCode) {
+          code.textContent = `رهگیری: ${trackingCode}`;
+          code.classList.remove('hidden');
+        } else {
+          code.classList.add('hidden');
+        }
+      }
+      if (ext) ext.href = imgUrl;
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeReceiptLightbox() {
+      const modal = document.getElementById('modal-receipt-lightbox');
+      if (modal) modal.classList.add('hidden');
+      const img = document.getElementById('receipt-lightbox-img');
+      if (img) img.src = '';
+      document.body.style.overflow = '';
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (typeof closeServerClientsModal === 'function') closeServerClientsModal();
+        if (typeof closeReceiptLightbox === 'function') closeReceiptLightbox();
+      }
+    });
 
     // --- 4. Location Ping & Health Status ---
     async function loadServerHealth() {
@@ -9610,10 +9976,10 @@
               ${c.discount_amount_toman ? ` (${formatNumber(c.discount_amount_toman)} تومان)` : ''}
             </td>
             <td class="p-3.5 text-slate-300 font-mono">
-              ${c.used_count || 0} / ${c.max_uses || '♾️'}
+              ${(c.current_uses ?? c.used_count ?? 0)} / ${c.max_uses || '♾️'}
             </td>
             <td class="p-3.5 text-slate-400">
-              ${c.expires_at || (c.valid_days ? `${c.valid_days} روز` : 'نامحدود')}
+              ${c.expires_at || (c.valid_until ? (typeof formatDate === 'function' ? formatDate(c.valid_until) : c.valid_until.slice(0, 10)) : (c.valid_days ? `${c.valid_days} روز` : 'نامحدود'))}
             </td>
             <td class="p-3.5">
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${c.is_active !== false ? 'bg-emerald-500/10 text-emerald-400' : 'bg-slate-800 text-slate-500'}">
