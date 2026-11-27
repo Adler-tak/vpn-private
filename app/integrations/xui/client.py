@@ -166,6 +166,14 @@ class ThreeXUIClient:
             if resp.status_code != 200 or is_html:
                 resp = await client.post(login_url, data=payload)
 
+            if resp.status_code == 403:
+                # 3x-ui burst rate-limit or concurrent session lock: wait 1.5s and retry once
+                logger.info(f"Notice: HTTP 403 on 3x-ui login to {self.base_url}, retrying with 1.5s backoff...")
+                await asyncio.sleep(1.5)
+                resp = await client.post(login_url, json=payload)
+                if resp.status_code != 200:
+                    resp = await client.post(login_url, data=payload)
+
             if resp.status_code in (500, 502, 503, 504):
                 raise PanelError(f"Panel server error HTTP {resp.status_code} on {self.base_url}: {resp.text[:200]}")
             if resp.status_code == 403:

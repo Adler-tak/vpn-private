@@ -303,6 +303,17 @@ class SystemSettingsUpdateRequest(BaseModel):
     card_bank_name: Optional[str] = None
     card_to_card_enabled: Optional[bool] = None
     referral_commission_percent: Optional[int] = None
+    health_check_interval: Optional[int] = None
+    health_retry_count: Optional[int] = None
+    health_retry_interval: Optional[int] = None
+    health_alert_cooldown: Optional[int] = None
+
+
+class HealthMonitorSettingsRequest(BaseModel):
+    check_interval_seconds: Optional[int] = Field(None, ge=10, le=3600, description="بازه بررسی دوره‌ای سلامت پنل‌ها به ثانیه")
+    retry_count: Optional[int] = Field(None, ge=1, le=20, description="تعداد دفعات تست مجدد متوالی قبل از ارسال هشدار")
+    retry_interval_seconds: Optional[int] = Field(None, ge=1, le=120, description="فاصله زمانی بین هر تلاش مجدد به ثانیه")
+    alert_cooldown_minutes: Optional[int] = Field(None, ge=1, le=1440, description="حداقل فاصله زمانی بین ارسال هشدارهای تکراری به دقیقه")
 
 
 class BotTextsUpdateRequest(BaseModel):
@@ -5243,6 +5254,9 @@ async def get_system_settings(
         for ib in inbounds
     ]
 
+    from app.services.panel_health_service import PanelHealthService
+    health_cfg = PanelHealthService.get_monitoring_config()
+
     return {
         "trial_enabled": getattr(settings, "TRIAL_ENABLED", True),
         "trial_traffic_gb": getattr(settings, "TRIAL_TRAFFIC_MB", 1024) / 1024,
@@ -5254,6 +5268,10 @@ async def get_system_settings(
         "card_bank_name": settings.CARD_BANK_NAME,
         "card_to_card_enabled": getattr(settings, "CARD_TO_CARD_ENABLED", True),
         "referral_commission_percent": settings.REFERRAL_COMMISSION_PERCENT,
+        "health_check_interval": health_cfg["check_interval_seconds"],
+        "health_retry_count": health_cfg["retry_count"],
+        "health_retry_interval": health_cfg["retry_interval_seconds"],
+        "health_alert_cooldown": health_cfg["alert_cooldown_minutes"],
         "inbounds": inb_list,
     }
 
@@ -5262,7 +5280,10 @@ async def get_system_settings(
 async def update_system_settings(
     req: SystemSettingsUpdateRequest,
     admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ):
+    from app.services.settings_service import SettingsService
+
     if req.referral_commission_percent is not None:
         settings.REFERRAL_COMMISSION_PERCENT = req.referral_commission_percent
     if req.trial_enabled is not None:
@@ -5302,7 +5323,109 @@ async def update_system_settings(
         settings.CARD_TO_CARD_ENABLED = req.card_to_card_enabled
         update_env_variable("CARD_TO_CARD_ENABLED", str(req.card_to_card_enabled).lower())
 
+    # Health monitoring settings
+    if req.health_check_interval is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_CHECK_INTERVAL",
+            str(req.health_check_interval),
+            category="monitoring",
+            description="بازه زمانی بررسی دوره‌ای سلامت پنل‌ها (به ثانیه)",
+            session=db,
+        )
+
+    if req.health_retry_count is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_RETRY_COUNT",
+            str(req.health_retry_count),
+            category="monitoring",
+            description="تعداد دفعات تست مجدد متوالی قبل از ارسال هشدار خطا به تلگرام",
+            session=db,
+        )
+
+    if req.health_retry_interval is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_RETRY_INTERVAL",
+            str(req.health_retry_interval),
+            category="monitoring",
+            description="فاصله زمانی بین هر تلاش مجدد (به ثانیه)",
+            session=db,
+        )
+
+    if req.health_alert_cooldown is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_ALERT_COOLDOWN",
+            str(req.health_alert_cooldown),
+            category="monitoring",
+            description="حداقل فاصله زمانی بین ارسال هشدارهای تکراری خطا (به دقیقه)",
+            session=db,
+        )
+
+    await db.commit()
     return {"success": True, "message": "تنظیمات با موفقیت ذخیره شدند."}
+
+
+@router.get("/settings/health-monitor")
+async def get_health_monitor_settings_endpoint(
+    admin: User = Depends(get_current_admin),
+):
+    """Retrieve panel health check & Xray monitoring configuration."""
+    from app.services.panel_health_service import PanelHealthService
+    return PanelHealthService.get_monitoring_config()
+
+
+@router.post("/settings/health-monitor")
+async def update_health_monitor_settings_endpoint(
+    req: HealthMonitorSettingsRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update panel health check & Xray monitoring configuration."""
+    from app.services.settings_service import SettingsService
+
+    if req.check_interval_seconds is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_CHECK_INTERVAL",
+            str(req.check_interval_seconds),
+            category="monitoring",
+            description="بازه زمانی بررسی دوره‌ای سلامت پنل‌ها (به ثانیه)",
+            session=db,
+        )
+
+    if req.retry_count is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_RETRY_COUNT",
+            str(req.retry_count),
+            category="monitoring",
+            description="تعداد دفعات تست مجدد متوالی قبل از ارسال هشدار خطا به تلگرام",
+            session=db,
+        )
+
+    if req.retry_interval_seconds is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_RETRY_INTERVAL",
+            str(req.retry_interval_seconds),
+            category="monitoring",
+            description="فاصله زمانی بین هر تلاش مجدد (به ثانیه)",
+            session=db,
+        )
+
+    if req.alert_cooldown_minutes is not None:
+        await SettingsService.set_value(
+            "PANEL_HEALTH_ALERT_COOLDOWN",
+            str(req.alert_cooldown_minutes),
+            category="monitoring",
+            description="حداقل فاصله زمانی بین ارسال هشدارهای تکراری خطا (به دقیقه)",
+            session=db,
+        )
+
+    await db.commit()
+    from app.services.panel_health_service import PanelHealthService
+    cfg = PanelHealthService.get_monitoring_config()
+    return {
+        "success": True,
+        "message": "تنظیمات مانیتورینگ سلامت و هشدارهای Xray با موفقیت ذخیره شد.",
+        "config": cfg,
+    }
 
 
 @router.get("/settings/payment-details")

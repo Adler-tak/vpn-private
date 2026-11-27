@@ -135,8 +135,10 @@ async def _background_panel_health_loop():
         except Exception as e:
             logger.error(f"Error in background panel health loop: {e}")
 
-        # Check every 60 seconds
-        await asyncio.sleep(60)
+        # Configurable check interval (default 60 seconds)
+        from app.services.settings_service import SettingsService
+        interval = SettingsService.get_int("PANEL_HEALTH_CHECK_INTERVAL", 60)
+        await asyncio.sleep(max(10, interval))
 
 
 @asynccontextmanager

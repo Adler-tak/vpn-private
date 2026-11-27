@@ -291,6 +291,32 @@ DEFAULT_SYSTEM_SETTINGS: List[Dict[str, str]] = [
         "category": "security",
         "description": "کلید امنیتی Base32 گوگل اتنتیکیتور",
     },
+
+    # --- Panel & Xray Health Monitoring Settings ---
+    {
+        "key": "PANEL_HEALTH_CHECK_INTERVAL",
+        "value": "60",
+        "category": "monitoring",
+        "description": "بازه زمانی بررسی دوره‌ای سلامت پنل‌ها (به ثانیه)",
+    },
+    {
+        "key": "PANEL_HEALTH_RETRY_COUNT",
+        "value": "5",
+        "category": "monitoring",
+        "description": "تعداد دفعات تست مجدد متوالی قبل از ارسال هشدار خطا به تلگرام",
+    },
+    {
+        "key": "PANEL_HEALTH_RETRY_INTERVAL",
+        "value": "5",
+        "category": "monitoring",
+        "description": "فاصله زمانی بین هر تلاش مجدد (به ثانیه)",
+    },
+    {
+        "key": "PANEL_HEALTH_ALERT_COOLDOWN",
+        "value": "30",
+        "category": "monitoring",
+        "description": "حداقل فاصله زمانی بین ارسال هشدارهای تکراری خطا (به دقیقه)",
+    },
 ]
 
 # Fast in-memory cache for synchronous reads with cross-container mtime auto-refresh

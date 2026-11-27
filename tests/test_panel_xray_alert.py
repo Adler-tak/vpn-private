@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from datetime import datetime, timezone, timedelta
 
 from app.database.models.panel import Panel
-from app.services.panel_health_service import PanelHealthService, _panel_alert_cache, ALERT_COOLDOWN_SECONDS
+from app.services.panel_health_service import PanelHealthService, _panel_alert_cache
+from app.services.settings_service import SettingsService
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,10 @@ async def test_check_panel_health_healthy():
     with patch("app.services.panel_health_service.ThreeXUIClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
+        mock_client.base_url = panel.base_url
+        mock_client.username = panel.username
+        mock_client.api_token = None
+        mock_client._is_authenticated = False
         mock_client.login.return_value = True
         mock_client.get_status.return_value = {
             "success": True,
@@ -42,7 +47,7 @@ async def test_check_panel_health_healthy():
             }
         }
 
-        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel)
+        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel, use_pool=False)
         assert is_healthy is True
         assert err_msg == ""
         assert details["xray_state"] == "running"
@@ -64,6 +69,10 @@ async def test_check_panel_health_xray_stopped():
     with patch("app.services.panel_health_service.ThreeXUIClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
+        mock_client.base_url = panel.base_url
+        mock_client.username = panel.username
+        mock_client.api_token = None
+        mock_client._is_authenticated = False
         mock_client.login.return_value = True
         mock_client.get_status.return_value = {
             "success": True,
@@ -76,7 +85,7 @@ async def test_check_panel_health_xray_stopped():
             }
         }
 
-        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel)
+        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel, use_pool=False)
         assert is_healthy is False
         assert "متوقف است" in err_msg
         assert details["xray_state"] == "stop"
@@ -97,6 +106,10 @@ async def test_check_panel_health_xray_error_msg():
     with patch("app.services.panel_health_service.ThreeXUIClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
+        mock_client.base_url = panel.base_url
+        mock_client.username = panel.username
+        mock_client.api_token = None
+        mock_client._is_authenticated = False
         mock_client.login.return_value = True
         mock_client.get_status.return_value = {
             "success": True,
@@ -109,7 +122,7 @@ async def test_check_panel_health_xray_error_msg():
             }
         }
 
-        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel)
+        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel, use_pool=False)
         assert is_healthy is False
         assert "address already in use" in err_msg
 
@@ -129,11 +142,71 @@ async def test_check_panel_health_connection_failure():
     with patch("app.services.panel_health_service.ThreeXUIClient") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
+        mock_client.base_url = panel.base_url
+        mock_client.username = panel.username
+        mock_client.api_token = None
+        mock_client._is_authenticated = False
         mock_client.login.side_effect = Exception("ConnectTimeout")
 
-        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel)
+        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel, use_pool=False)
         assert is_healthy is False
         assert "عدم پاسخگویی" in err_msg
+
+
+@pytest.mark.asyncio
+async def test_check_panel_health_with_retry_recovers():
+    """Test that retry loop suppresses false alarm when panel recovers on attempt 2."""
+    panel = Panel(
+        id=uuid.uuid4(),
+        name="Glitchy Node",
+        base_url="https://glitch.example.com:2053",
+        username="admin",
+        is_active=True,
+    )
+    panel.password = "pwd"
+
+    # Call 1: fails with 403, Call 2: succeeds
+    health_calls = [
+        (False, "خطای احراز هویت با پنل: Access forbidden (HTTP 403)", {}),
+        (True, "", {"xray_state": "running", "xray_version": "1.8.24"}),
+    ]
+
+    with patch.object(PanelHealthService, "check_panel_health", side_effect=health_calls), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
+
+        is_healthy, err, details = await PanelHealthService.check_panel_health_with_retry(
+            panel=panel,
+            retry_count=3,
+            retry_interval=1,
+        )
+        assert is_healthy is True
+        assert err == ""
+        assert details.get("xray_state") == "running"
+
+
+@pytest.mark.asyncio
+async def test_check_panel_health_with_retry_all_fail():
+    """Test that retry loop returns confirmed failure when all retries fail."""
+    panel = Panel(
+        id=uuid.uuid4(),
+        name="Dead Node",
+        base_url="https://dead.example.com:2053",
+        username="admin",
+        is_active=True,
+    )
+    panel.password = "pwd"
+
+    with patch.object(PanelHealthService, "check_panel_health", return_value=(False, "Connection Refused", {})), \
+         patch("asyncio.sleep", new_callable=AsyncMock):
+
+        is_healthy, err, details = await PanelHealthService.check_panel_health_with_retry(
+            panel=panel,
+            retry_count=4,
+            retry_interval=2,
+        )
+        assert is_healthy is False
+        assert "Connection Refused" in err
+        assert "4 بار تست متوالی" in err
 
 
 @pytest.mark.asyncio
@@ -182,7 +255,7 @@ async def test_record_panel_result_alert_and_deduplication():
 
         # 3. Third check after cooldown -> alert repeats
         cached = PanelHealthService.get_cached_state(panel.id)
-        cached["last_alert_at"] = datetime.now(timezone.utc) - timedelta(seconds=ALERT_COOLDOWN_SECONDS + 10)
+        cached["last_alert_at"] = datetime.now(timezone.utc) - timedelta(seconds=3600)
 
         alert_sent_3 = await PanelHealthService.record_panel_result(
             panel=panel,
