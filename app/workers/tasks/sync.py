@@ -211,12 +211,29 @@ async def _async_sync_all_traffic():
                 panel.last_sync_at = datetime.now(timezone.utc)
                 panel.is_healthy = True
                 panel.error_message = None
+                try:
+                    from app.services.panel_health_service import PanelHealthService
+                    await PanelHealthService.record_panel_result(
+                        panel=panel,
+                        is_healthy=True,
+                        error_msg="",
+                        db_session=session,
+                    )
+                except Exception as rec_err:
+                    logger.debug(f"Could not record health result on success: {rec_err}")
                 await session.commit()
             except Exception as e:
                 logger.error(f"Error syncing panel {panel.name}: {e}")
                 try:
                     panel.is_healthy = False
                     panel.error_message = str(e)
+                    from app.services.panel_health_service import PanelHealthService
+                    await PanelHealthService.record_panel_result(
+                        panel=panel,
+                        is_healthy=False,
+                        error_msg=str(e),
+                        db_session=session,
+                    )
                     await session.commit()
                 except Exception as commit_err:
                     logger.error(f"Failed to record error state for panel {panel.name}: {commit_err}")

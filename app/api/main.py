@@ -120,6 +120,25 @@ async def _background_smart_maintenance_loop():
         await asyncio.sleep(900)
 
 
+async def _background_panel_health_loop():
+    """Periodically monitor panel connectivity & Xray core status every 60 seconds and notify admins on errors."""
+    from app.services.panel_health_service import PanelHealthService
+    from app.database.session import AsyncSessionLocal
+
+    await asyncio.sleep(15)  # Initial delay 15 seconds after startup
+    while True:
+        try:
+            async with AsyncSessionLocal() as session:
+                await PanelHealthService.check_all_panels_and_alert(db_session=session)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.error(f"Error in background panel health loop: {e}")
+
+        # Check every 60 seconds
+        await asyncio.sleep(60)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting VPN Private API Service...")
@@ -208,14 +227,16 @@ async def lifespan(app: FastAPI):
     inbound_sync_task = asyncio.create_task(_background_inbound_sync_loop())
     winback_task = asyncio.create_task(_background_winback_loop())
     smart_task = asyncio.create_task(_background_smart_maintenance_loop())
+    panel_health_task = asyncio.create_task(_background_panel_health_loop())
     yield
     sync_task.cancel()
     expiration_task.cancel()
     inbound_sync_task.cancel()
     winback_task.cancel()
     smart_task.cancel()
+    panel_health_task.cancel()
     try:
-        await asyncio.gather(sync_task, expiration_task, inbound_sync_task, winback_task, smart_task, return_exceptions=True)
+        await asyncio.gather(sync_task, expiration_task, inbound_sync_task, winback_task, smart_task, panel_health_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
     logger.info("Shutting down VPN Private API Service...")

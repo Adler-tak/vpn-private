@@ -281,12 +281,17 @@ async def list_admin_panels(callback: CallbackQuery, db_user: User, db_session: 
         text += "<i>در حال حاضر هیچ پنلی در سیستم ثبت نشده است.</i>\n\n"
     else:
         for p in panels:
-            status_icon = "🟢 آنلاین" if p.is_healthy else "🔴 قطع"
-            active_icon = "✅ فعال" if p.is_active else "⏸ غیرفعال"
+            status_icon = "🟢 آنلاین (Xray فعال)" if p.is_healthy else "🔴 دارای خطا"
+            active_icon = "✅ توزیع فعال" if p.is_active else "⏸ توزیع متوقف"
             inbounds_cnt = len(p.inbounds) if p.inbounds else 0
             text += f"• <b>{p.name}</b> ➔ {status_icon} | {active_icon}\n"
             text += f"  🔗 آدرس: <code>{p.base_url}</code>\n"
-            text += f"  📡 اینباندها: <b>{inbounds_cnt} مورد</b>\n\n"
+            text += f"  📡 اینباندها: <b>{inbounds_cnt} مورد</b>\n"
+            if not p.is_healthy and p.error_message:
+                import html
+                clean_err_prev = html.escape(p.error_message[:70])
+                text += f"  ⚠️ <b>خطای Xray:</b> <code>{clean_err_prev}</code>\n"
+            text += "\n"
 
     keyboard_buttons = []
     if panels:
@@ -656,35 +661,31 @@ async def ping_all_panels(callback: CallbackQuery, db_user: User, db_session: As
     if not panels:
         return await callback.answer("هیچ پنلی جهت تست ثبت نشده است.", show_alert=True)
 
-    await callback.answer("در حال تست اتصال همه پنل‌ها...", show_alert=False)
+    await callback.answer("در حال تست اتصال و بررسی سلامت هسته Xray پنل‌ها...", show_alert=False)
 
-    from app.integrations.xui.client import ThreeXUIClient
+    from app.services.panel_health_service import PanelHealthService
     results = []
     for p in panels:
-        client = ThreeXUIClient(
-            base_url=p.base_url,
-            username=p.username,
-            password=p.password,
-            api_token=p.api_token,
-            login_secret=p.login_secret,
-            timeout=6.0,
+        is_healthy, err_msg, details = await PanelHealthService.check_panel_health(p, timeout=8.0)
+        await PanelHealthService.record_panel_result(
+            panel=p,
+            is_healthy=is_healthy,
+            error_msg=err_msg,
+            db_session=db_session,
+            bot=callback.bot,
+            details=details,
         )
-        try:
-            ok = await client.login()
-            p.is_healthy = ok
-            p.error_message = None if ok else "Login failed"
-            status = "🟢 آنلاین" if ok else "🔴 قطع"
-        except Exception as e:
-            p.is_healthy = False
-            p.error_message = str(e)
-            status = f"🔴 خطا ({e})"
-        finally:
-            await client.close()
-        results.append(f"• **{p.name}** ➔ {status}")
+        if is_healthy:
+            x_ver = details.get("xray_version") or "running"
+            status = f"🟢 آنلاین و هسته Xray فعال ({x_ver})"
+        else:
+            clean_e = err_msg[:60] if err_msg else "خطای نامشخص"
+            status = f"🔴 خطای Xray: {clean_e}"
+        results.append(f"• <b>{p.name}</b> ➔ {status}")
 
     await db_session.commit()
 
-    text = "🔄 <b>نتیجه بررسی سلامت و اتصال پنل‌های 3x-ui:</b>\n\n" + "\n".join(results)
+    text = "🔄 <b>نتیجه بررسی سلامت و اتصال پنل‌ها و هسته Xray:</b>\n\n" + "\n".join(results)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ افزودن پنل جدید", callback_data="admin_prompt_add_panel")],
         [InlineKeyboardButton(text="🔙 بازگشت به لیست", callback_data="admin_view_panels")],
@@ -693,6 +694,76 @@ async def ping_all_panels(callback: CallbackQuery, db_user: User, db_session: As
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
         await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("admin_recheck_panel:"))
+async def handle_admin_recheck_panel(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Live re-check single panel reachability and Xray state on-demand."""
+    if not is_admin(db_user):
+        return await callback.answer("⛔️ دسترسی غیرمجاز", show_alert=True)
+
+    panel_id_str = callback.data.split(":", 1)[1]
+    try:
+        p_uuid = uuid.UUID(panel_id_str)
+    except ValueError:
+        return await callback.answer("شناسه پنل نامعتبر است.", show_alert=True)
+
+    panel = await db_session.get(Panel, p_uuid)
+    if not panel:
+        return await callback.answer("پنل مورد نظر یافت نشد.", show_alert=True)
+
+    await callback.answer("⏳ در حال بررسی سلامت و تست هسته Xray...", show_alert=False)
+
+    from app.services.panel_health_service import PanelHealthService
+    is_healthy, err_msg, details = await PanelHealthService.check_panel_health(panel, timeout=10.0)
+    await PanelHealthService.record_panel_result(
+        panel=panel,
+        is_healthy=is_healthy,
+        error_msg=err_msg,
+        db_session=db_session,
+        bot=callback.bot,
+        details=details,
+        force_alert=False,
+    )
+    await db_session.commit()
+
+    import html
+    clean_pname = html.escape(panel.name or "پنل")
+    clean_purl = html.escape(panel.base_url or "")
+
+    if is_healthy:
+        x_ver = details.get("xray_version") or "1.8.x"
+        res_text = (
+            f"🟢 <b>نتیجه بررسی پنل «{clean_pname}»: آنلاین و پایدار</b>\n\n"
+            f"🔗 آدرس سرور: <code>{clean_purl}</code>\n"
+            f"⚙️ وضعیت هسته Xray: <b>در حال اجرا (running)</b>\n"
+            f"🏷 نسخه Xray: <code>{html.escape(str(x_ver))}</code>\n\n"
+            f"✅ سرویس Xray با موفقیت پاسخ داد و هیچ خطایی ثبت نشد."
+        )
+    else:
+        clean_err = html.escape(err_msg or "خطای نامشخص در هسته Xray")
+        res_text = (
+            f"🚨 <b>نتیجه بررسی پنل «{clean_pname}»: دارای خطا!</b>\n\n"
+            f"🔗 آدرس سرور: <code>{clean_purl}</code>\n"
+            f"❌ <b>جزئیات خطای Xray:</b>\n"
+            f"<code>{clean_err}</code>\n\n"
+            f"⚠️ لطفاً تنظیمات، فایروال و لاگ‌های سرور 3X-UI را بررسی نمایید."
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="🔄 تست مجدد این پنل", callback_data=f"admin_recheck_panel:{panel.id}"),
+            InlineKeyboardButton(text="⚙️ مدیریت پنل", callback_data=f"admin_panel_manage:{panel.id}"),
+        ],
+        [
+            InlineKeyboardButton(text="🖥 مشاهده لیست پنل‌ها", callback_data="admin_view_panels"),
+            InlineKeyboardButton(text="🔙 بازگشت به داشبورد", callback_data="admin_refresh_dashboard"),
+        ],
+    ])
+    try:
+        await callback.message.edit_text(res_text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(res_text, reply_markup=kb, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("admin_panel_manage:"))
@@ -720,7 +791,7 @@ async def manage_single_panel(callback: CallbackQuery, db_user: User, db_session
     )
     active_subs = subs_res.scalar() or 0
 
-    status_icon = "🟢 آنلاین و پایدار" if panel.is_healthy else "🔴 قطع ارتباط"
+    status_icon = "🟢 آنلاین و پایدار" if panel.is_healthy else "🔴 دارای خطای Xray"
     active_status = "✅ فعال (آماده توزیع اکانت)" if panel.is_active else "⏸ غیرفعال (توزیع متوقف)"
     sync_time = panel.last_sync_at.strftime("%Y/%m/%d %H:%M") if panel.last_sync_at else "ثبت نشده"
 
@@ -743,14 +814,15 @@ async def manage_single_panel(callback: CallbackQuery, db_user: User, db_session
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="🔄 همگام‌سازی اینباندها", callback_data=f"admin_panel_sync:{panel.id}"),
+            InlineKeyboardButton(text="🔍 تست زنده هسته Xray", callback_data=f"admin_recheck_panel:{panel.id}"),
             InlineKeyboardButton(text="⚡️ تست اتصال و پینگ", callback_data=f"admin_panel_test:{panel.id}"),
         ],
         [
+            InlineKeyboardButton(text="🔄 همگام‌سازی اینباندها", callback_data=f"admin_panel_sync:{panel.id}"),
             InlineKeyboardButton(text=toggle_btn_text, callback_data=f"admin_panel_toggle:{panel.id}"),
-            InlineKeyboardButton(text="🗑 حذف پنل", callback_data=f"admin_panel_delete:{panel.id}"),
         ],
         [
+            InlineKeyboardButton(text="🗑 حذف پنل", callback_data=f"admin_panel_delete:{panel.id}"),
             InlineKeyboardButton(text="🔙 بازگشت به لیست پنل‌ها", callback_data="admin_view_panels"),
         ],
     ])

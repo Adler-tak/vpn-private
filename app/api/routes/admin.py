@@ -4089,6 +4089,16 @@ async def sync_panel_inbounds_endpoint(
         if not ok:
             panel.is_healthy = False
             panel.error_message = "احراز هویت با پنل ناموفق بود."
+            try:
+                from app.services.panel_health_service import PanelHealthService
+                await PanelHealthService.record_panel_result(
+                    panel=panel,
+                    is_healthy=False,
+                    error_msg="احراز هویت با پنل ناموفق بود.",
+                    db_session=db,
+                )
+            except Exception:
+                pass
             await db.commit()
             raise HTTPException(status_code=400, detail="ورود به پنل ناموفق بود. لطفاً رمز عبور را بررسی فرمایید.")
 
@@ -4096,11 +4106,31 @@ async def sync_panel_inbounds_endpoint(
         panel.is_healthy = True
         panel.error_message = None
         panel.last_sync_at = datetime.now(timezone.utc)
+        try:
+            from app.services.panel_health_service import PanelHealthService
+            await PanelHealthService.record_panel_result(
+                panel=panel,
+                is_healthy=True,
+                error_msg="",
+                db_session=db,
+            )
+        except Exception:
+            pass
     except HTTPException:
         raise
     except Exception as exc:
         panel.is_healthy = False
         panel.error_message = str(exc)
+        try:
+            from app.services.panel_health_service import PanelHealthService
+            await PanelHealthService.record_panel_result(
+                panel=panel,
+                is_healthy=False,
+                error_msg=f"خطا در ارتباط با پنل: {exc}",
+                db_session=db,
+            )
+        except Exception:
+            pass
         await db.commit()
         raise HTTPException(status_code=400, detail=f"خطا در ارتباط با پنل: {exc}")
     finally:
@@ -4256,22 +4286,85 @@ async def test_panel_connection_endpoint(
                     "inbounds_count": len(inbs),
                 }
 
+            # Check live Xray core status
+            xray_state = "running"
+            xray_error = ""
+            xray_version = ""
+            try:
+                raw_status = await client.get_status()
+                s_obj = raw_status.get("obj") if isinstance(raw_status, dict) else {}
+                if isinstance(s_obj, dict):
+                    xray_obj = s_obj.get("xray") if isinstance(s_obj.get("xray"), dict) else {}
+                    xray_state = str(xray_obj.get("state") or "running").strip().lower()
+                    xray_error = str(xray_obj.get("errorMsg") or "").strip()
+                    xray_version = str(xray_obj.get("version") or "").strip()
+            except Exception as st_err:
+                logger.debug(f"Could not read xray status from {panel.name}: {st_err}")
+
+            from app.services.panel_health_service import PanelHealthService
+            if xray_error or (xray_state and xray_state != "running"):
+                err_desc = xray_error or f"هسته Xray متوقف است (وضعیت: {xray_state})"
+                panel.is_healthy = False
+                panel.error_message = err_desc
+                await db.commit()
+                try:
+                    await PanelHealthService.record_panel_result(
+                        panel=panel,
+                        is_healthy=False,
+                        error_msg=err_desc,
+                        db_session=db,
+                        details={"xray_state": xray_state, "xray_error": xray_error, "xray_version": xray_version},
+                    )
+                except Exception:
+                    pass
+                return {
+                    "success": False,
+                    "latency_ms": duration_ms,
+                    "inbounds_count": len(inbs),
+                    "panel_type": p_type,
+                    "xray_state": xray_state,
+                    "xray_error": xray_error,
+                    "capabilities": capabilities,
+                    "message": f"اتصال به پنل برقرار شد، اما هسته Xray خطا دارد: {err_desc}",
+                }
+
             panel.is_healthy = True
             panel.error_message = None
             panel.last_sync_at = datetime.now(timezone.utc)
             await db.commit()
+            try:
+                await PanelHealthService.record_panel_result(
+                    panel=panel,
+                    is_healthy=True,
+                    error_msg="",
+                    db_session=db,
+                    details={"xray_state": xray_state, "xray_version": xray_version},
+                )
+            except Exception:
+                pass
             return {
                 "success": True,
                 "latency_ms": duration_ms,
                 "inbounds_count": len(inbs),
                 "panel_type": p_type,
+                "xray_state": xray_state,
                 "capabilities": capabilities,
-                "message": f"اتصال به پنل با موفقیت برقرار شد (نوع: {p_type} — پینگ: {duration_ms}ms — اینباندها: {len(inbs)})",
+                "message": f"اتصال به پنل و هسته Xray با موفقیت برقرار شد (پینگ: {duration_ms}ms — اینباندها: {len(inbs)})",
             }
         else:
             panel.is_healthy = False
             panel.error_message = "نام کاربری یا کلمه عبور نامعتبر است."
             await db.commit()
+            try:
+                from app.services.panel_health_service import PanelHealthService
+                await PanelHealthService.record_panel_result(
+                    panel=panel,
+                    is_healthy=False,
+                    error_msg="نام کاربری یا کلمه عبور نامعتبر است.",
+                    db_session=db,
+                )
+            except Exception:
+                pass
             return {
                 "success": False,
                 "latency_ms": duration_ms,
@@ -4283,6 +4376,16 @@ async def test_panel_connection_endpoint(
         panel.is_healthy = False
         panel.error_message = str(exc)
         await db.commit()
+        try:
+            from app.services.panel_health_service import PanelHealthService
+            await PanelHealthService.record_panel_result(
+                panel=panel,
+                is_healthy=False,
+                error_msg=f"خطا در برقراری ارتباط: {str(exc)}",
+                db_session=db,
+            )
+        except Exception:
+            pass
         return {
             "success": False,
             "latency_ms": duration_ms,
