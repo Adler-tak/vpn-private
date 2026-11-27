@@ -1719,9 +1719,9 @@ async def list_payments(
     items = []
     for p in payments:
         product_name = p.order.product.name if (p.order and p.order.product) else "شارژ مستقیم کیف پول"
-        receipt_photo = p.receipt.telegram_file_id if p.receipt else None
+        receipt_photo = p.receipt.telegram_file_id if (p.receipt and p.receipt.telegram_file_id and not p.receipt.telegram_file_id.startswith("TXID:")) else None
         tx_ref = p.receipt.transaction_ref if p.receipt else (p.reference_id or "—")
-        has_receipt = bool(p.receipt and (p.receipt.telegram_file_id or (p.receipt.transaction_ref and p.receipt.transaction_ref != "—")))
+        has_receipt = bool(p.receipt and (receipt_photo or (p.receipt.transaction_ref and p.receipt.transaction_ref != "—")))
 
         coupon_code = None
         coupon_discount_pct = None
@@ -1763,34 +1763,60 @@ async def get_telegram_file_proxy(
     db: AsyncSession = Depends(get_db),
 ):
     """Proxy or stream Telegram file download for viewing receipts and ticket attachments in Web Admin."""
-    from app.database.models.bot import TelegramBot
-    bot_token = settings.BOT_TOKEN
-    active_bot = (await db.execute(select(TelegramBot).where(TelegramBot.is_active == True))).scalars().first()
-    if active_bot and active_bot.token:
-        bot_token = active_bot.token
+    if not file_id or file_id.startswith("TXID:") or file_id in ("undefined", "null", "—"):
+        raise HTTPException(status_code=404, detail="شناسه فایل نامعتبر است.")
 
-    if not bot_token:
+    from app.database.models.bot import TelegramBot
+    tokens_to_try = []
+    active_bots = (await db.execute(select(TelegramBot).where(TelegramBot.is_active == True))).scalars().all()
+    for b in active_bots:
+        if b.token and b.token not in tokens_to_try:
+            tokens_to_try.append(b.token)
+    if settings.BOT_TOKEN and settings.BOT_TOKEN not in tokens_to_try:
+        tokens_to_try.append(settings.BOT_TOKEN)
+
+    if not tokens_to_try:
         raise HTTPException(status_code=400, detail="توکن ربات تلگرام تنظیم نشده است.")
 
+    last_error = None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            info_res = await client.get(
-                f"https://api.telegram.org/bot{bot_token}/getFile",
-                params={"file_id": file_id},
-            )
-            data = info_res.json()
-            if not data.get("ok"):
-                raise HTTPException(status_code=404, detail="فایل در تلگرام یافت نشد یا منقضی شده است.")
-            file_path = data["result"]["file_path"]
-            download_url = f"https://api.telegram.org/file/bot{bot_token}/{file_path}"
+            for token in tokens_to_try:
+                try:
+                    info_res = await client.get(
+                        f"https://api.telegram.org/bot{token}/getFile",
+                        params={"file_id": file_id},
+                    )
+                    data = info_res.json()
+                    if not data.get("ok"):
+                        continue
+                    file_path = data["result"]["file_path"]
+                    download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
 
-            file_res = await client.get(download_url)
-            content_type = file_res.headers.get("content-type", "image/jpeg")
-            return Response(
-                content=file_res.content,
-                media_type=content_type,
-                headers={"Content-Disposition": "inline"},
-            )
+                    file_res = await client.get(download_url)
+                    if file_res.status_code == 200:
+                        ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else "jpg"
+                        mime_map = {
+                            "jpg": "image/jpeg",
+                            "jpeg": "image/jpeg",
+                            "png": "image/png",
+                            "webp": "image/webp",
+                            "gif": "image/gif",
+                        }
+                        media_type = mime_map.get(ext, "image/jpeg")
+                        return Response(
+                            content=file_res.content,
+                            media_type=media_type,
+                            headers={
+                                "Content-Disposition": "inline",
+                                "Content-Type": media_type,
+                                "Cache-Control": "public, max-age=604800, immutable",
+                            },
+                        )
+                except Exception as e_tok:
+                    last_error = e_tok
+                    continue
+            raise HTTPException(status_code=404, detail="فایل در تلگرام یافت نشد یا منقضی شده است.")
     except HTTPException:
         raise
     except Exception as exc:

@@ -4898,33 +4898,45 @@
 
 
   <!-- Modal: Receipt Image Lightbox Popup -->
-  <div id="modal-receipt-lightbox" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-md transition-all duration-200" onclick="if(event.target === this) closeReceiptLightbox()">
-    <div class="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl glass-card bg-slate-900/95 border border-indigo-500/30 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-      <div class="w-full flex items-center justify-between p-3.5 sm:px-5 border-b border-slate-800 shrink-0">
+  <div id="modal-receipt-lightbox" class="hidden fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-slate-950/90 backdrop-blur-md transition-all duration-200" onclick="if(event.target === this) closeReceiptLightbox()">
+    <div class="relative w-full max-w-4xl max-h-[92vh] flex flex-col rounded-2xl glass-card bg-slate-900/98 border border-indigo-500/40 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onclick="event.stopPropagation()">
+      <div class="w-full flex items-center justify-between p-3.5 sm:px-5 border-b border-slate-800 shrink-0 bg-slate-950/60">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
             <i class="bi bi-receipt text-sm"></i>
           </div>
           <div>
             <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
-              <span>پیش‌نمایش تصویر فیش واریزی</span>
+              <span>مشاهده فیش واریزی در پاپ‌آپ</span>
               <span id="receipt-lightbox-code" class="hidden text-[10px] font-mono px-2 py-0.5 rounded-md bg-slate-800 text-indigo-300 border border-slate-700"></span>
             </h4>
             <p class="text-[10px] text-slate-400 mt-0.5">تصویر فیش ارسالی توسط کاربر در ربات تلگرام</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <a id="receipt-lightbox-open-external" href="#" target="_blank" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 shadow-sm" title="باز کردن تصویر در تب جدید">
-            <i class="bi bi-box-arrow-up-right text-[11px]"></i>
-            <span class="hidden sm:inline">تب جدید</span>
-          </a>
-          <button type="button" onclick="closeReceiptLightbox()" class="p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition" title="بستن (Esc)">
+          <!-- Zoom Controls -->
+          <div class="flex items-center gap-1 bg-slate-800/80 rounded-xl p-1 border border-slate-700/60">
+            <button type="button" onclick="zoomReceiptLightbox(0.2)" class="p-1 px-2 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition" title="بزرگنمایی (+)"><i class="bi bi-zoom-in"></i></button>
+            <button type="button" onclick="zoomReceiptLightbox(-0.2)" class="p-1 px-2 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition" title="کوچکنمایی (-)"><i class="bi bi-zoom-out"></i></button>
+            <button type="button" onclick="resetReceiptLightboxZoom()" class="p-1 px-2 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition" title="اندازه واقعی (100%)"><i class="bi bi-aspect-ratio"></i></button>
+            <button type="button" onclick="rotateReceiptLightbox()" class="p-1 px-2 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition" title="چرخش تصویر (90 درجه)"><i class="bi bi-arrow-clockwise"></i></button>
+          </div>
+          <button type="button" onclick="closeReceiptLightbox()" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-600/80 text-slate-400 hover:text-white transition" title="بستن (Esc)">
             <i class="bi bi-x-lg text-sm"></i>
           </button>
         </div>
       </div>
-      <div class="relative w-full flex-1 flex items-center justify-center overflow-auto p-4 min-h-[220px] max-h-[78vh] bg-slate-950/60 select-none">
-        <img id="receipt-lightbox-img" src="" alt="فیش واریزی" class="max-h-[74vh] w-auto max-w-full rounded-xl object-contain shadow-2xl border border-slate-800/80 transition" />
+      <div id="receipt-lightbox-container" class="relative w-full flex-1 flex items-center justify-center overflow-auto p-4 min-h-[300px] max-h-[78vh] bg-slate-950/80 select-none">
+        <div id="receipt-lightbox-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 gap-3 z-10">
+          <div class="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          <span class="text-xs text-slate-400">در حال بارگذاری تصویر فیش...</span>
+        </div>
+        <div id="receipt-lightbox-error" class="hidden absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 gap-2 p-6 text-center z-10">
+          <i class="bi bi-exclamation-triangle text-amber-400 text-3xl mb-1"></i>
+          <span class="text-sm font-semibold text-slate-200">عدم دسترسی به تصویر فیش</span>
+          <span class="text-xs text-slate-400 max-w-sm">تصویر در سرور تلگرام منقضی شده یا توکن ربات تغییر یافته است. برای تایید می‌توانید کد پیگیری و شماره حساب را با گردش حساب خود بررسی نمایید.</span>
+        </div>
+        <img id="receipt-lightbox-img" src="" alt="فیش واریزی" class="max-h-[72vh] w-auto max-w-full rounded-xl object-contain shadow-2xl border border-slate-800/80 transition-transform duration-150 origin-center" />
       </div>
     </div>
   </div>
@@ -6201,13 +6213,13 @@
               <div class="p-2 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
                 <div class="text-[10px] text-slate-400 flex justify-between items-center">
                   <span>🖼 فیش ارسالی کاربر</span>
-                  <button type="button" onclick="openReceiptLightbox('/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 transition">
+                  <button type="button" onclick="openReceiptLightbox(event, '/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="text-indigo-400 hover:text-indigo-300 text-[10px] font-semibold flex items-center gap-1 transition">
                     <i class="bi bi-arrows-fullscreen text-[9px]"></i>
                     <span>بزرگنمایی &larr;</span>
                   </button>
                 </div>
-                <div onclick="openReceiptLightbox('/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="cursor-pointer block overflow-hidden rounded-lg bg-slate-950 border border-slate-800 max-h-36 hover:border-indigo-500/50 transition group">
-                  <img src="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" alt="فیش واریزی" class="w-full h-32 object-cover group-hover:scale-105 transition duration-300" loading="lazy" />
+                <div onclick="openReceiptLightbox(event, '/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}', '${escapeHtml(p.tracking_code || p.transaction_ref || '')}')" class="cursor-pointer block overflow-hidden rounded-lg bg-slate-950 border border-slate-800 max-h-36 hover:border-indigo-500/50 transition group">
+                  <img src="/api/v1/admin/telegram-file/${encodeURIComponent(p.receipt_photo)}" alt="فیش واریزی" class="w-full h-32 object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'w-full h-24 flex flex-col items-center justify-center text-slate-500 text-xs bg-slate-950/60 rounded-lg p-2\\'><i class=\\'bi bi-file-earmark-image text-2xl mb-1 text-slate-600\\'></i>تصویر فیش در تلگرام یافت نشد</div>';" />
                 </div>
               </div>
             ` : ''}
@@ -9118,17 +9130,11 @@
       const btn1 = document.getElementById('btn-backup-xui');
       const icon1 = document.getElementById('icon-backup-xui');
       const text1 = document.getElementById('text-backup-xui');
-      const btn2 = document.getElementById('btn-backup-xui-tab8');
-      const icon2 = document.getElementById('icon-backup-xui-tab8');
-      const text2 = document.getElementById('text-backup-xui-tab8');
 
       const setButtonState = (loading) => {
         if (btn1) btn1.disabled = loading;
-        if (btn2) btn2.disabled = loading;
         if (icon1) icon1.className = loading ? 'bi bi-arrow-repeat animate-spin text-sm' : 'bi bi-cloud-arrow-down text-sm';
-        if (icon2) icon2.className = loading ? 'bi bi-arrow-repeat animate-spin text-base' : 'bi bi-cloud-arrow-down text-base';
         if (text1) text1.innerText = loading ? 'در حال پشتیبان‌گیری...' : 'ایجاد بک‌آپ فوری از دیتابیس ۳X-UI';
-        if (text2) text2.innerText = loading ? 'در حال پشتیبان‌گیری...' : 'ایجاد بک‌آپ فوری از دیتابیس ۳X-UI';
       };
 
       setButtonState(true);
@@ -9853,12 +9859,36 @@
     }
 
     // --- Card-to-Card Receipt Lightbox Popup ---
-    function openReceiptLightbox(imgUrl, trackingCode) {
+    let receiptZoomScale = 1;
+    let receiptRotateDeg = 0;
+
+    function openReceiptLightbox(event, imgUrl, trackingCode) {
+      if (event) {
+        if (typeof event.preventDefault === 'function') event.preventDefault();
+        if (typeof event.stopPropagation === 'function') event.stopPropagation();
+      }
       const modal = document.getElementById('modal-receipt-lightbox');
       const img = document.getElementById('receipt-lightbox-img');
       const code = document.getElementById('receipt-lightbox-code');
-      const ext = document.getElementById('receipt-lightbox-open-external');
+      const loading = document.getElementById('receipt-lightbox-loading');
+      const errorEl = document.getElementById('receipt-lightbox-error');
       if (!modal || !img) return;
+
+      receiptZoomScale = 1;
+      receiptRotateDeg = 0;
+      img.style.transform = 'scale(1) rotate(0deg)';
+      if (loading) loading.classList.remove('hidden');
+      if (errorEl) errorEl.classList.add('hidden');
+      img.classList.add('opacity-0');
+
+      img.onload = () => {
+        if (loading) loading.classList.add('hidden');
+        img.classList.remove('opacity-0');
+      };
+      img.onerror = () => {
+        if (loading) loading.classList.add('hidden');
+        if (errorEl) errorEl.classList.remove('hidden');
+      };
 
       img.src = imgUrl;
       if (code) {
@@ -9869,7 +9899,6 @@
           code.classList.add('hidden');
         }
       }
-      if (ext) ext.href = imgUrl;
       modal.classList.remove('hidden');
       document.body.style.overflow = 'hidden';
     }
@@ -9878,8 +9907,33 @@
       const modal = document.getElementById('modal-receipt-lightbox');
       if (modal) modal.classList.add('hidden');
       const img = document.getElementById('receipt-lightbox-img');
-      if (img) img.src = '';
+      if (img) {
+        img.src = '';
+        img.style.transform = 'scale(1) rotate(0deg)';
+      }
       document.body.style.overflow = '';
+    }
+
+    function zoomReceiptLightbox(delta) {
+      const img = document.getElementById('receipt-lightbox-img');
+      if (!img) return;
+      receiptZoomScale = Math.min(3, Math.max(0.5, receiptZoomScale + delta));
+      img.style.transform = `scale(${receiptZoomScale}) rotate(${receiptRotateDeg}deg)`;
+    }
+
+    function resetReceiptLightboxZoom() {
+      const img = document.getElementById('receipt-lightbox-img');
+      if (!img) return;
+      receiptZoomScale = 1;
+      receiptRotateDeg = 0;
+      img.style.transform = 'scale(1) rotate(0deg)';
+    }
+
+    function rotateReceiptLightbox() {
+      const img = document.getElementById('receipt-lightbox-img');
+      if (!img) return;
+      receiptRotateDeg = (receiptRotateDeg + 90) % 360;
+      img.style.transform = `scale(${receiptZoomScale}) rotate(${receiptRotateDeg}deg)`;
     }
 
     document.addEventListener('keydown', (e) => {

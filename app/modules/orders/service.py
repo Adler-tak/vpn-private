@@ -81,7 +81,6 @@ class OrderService:
                         Coupon.current_uses < Coupon.max_uses,
                     )
                 )
-                .with_for_update()
             )
             candidate = coupon_res.scalar_one_or_none()
             if candidate:
@@ -92,6 +91,21 @@ class OrderService:
                         cand_valid = cand_valid.replace(tzinfo=timezone.utc)
                     if cand_valid < now_utc:
                         is_valid = False
+
+                # Prevent same user from reusing the same coupon across multiple paid orders
+                if is_valid:
+                    used_order = (
+                        await self.session.execute(
+                            select(Order.id).where(
+                                Order.user_id == user_id,
+                                Order.coupon_id == candidate.id,
+                                Order.status.in_([OrderStatus.PAID, OrderStatus.ACTIVE, "PAID", "ACTIVE", "COMPLETED"]),
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if used_order:
+                        is_valid = False
+
                 if is_valid:
                     coupon = candidate
                     if coupon.discount_percent > 0:

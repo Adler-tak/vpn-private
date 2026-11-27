@@ -429,7 +429,7 @@ class SettingsService:
     def get_int(cls, key: str, default: int = 0) -> int:
         """Read setting as integer with safe fallback on corruption."""
         val = cls.get_value(key)
-        if val is None or val == "":
+        if val is None or getattr(val, "_is_none", False) or not str(val).strip() or str(val).strip().lower() in ("none", "null", "undefined"):
             return default
         try:
             if isinstance(val, (int, float)):
@@ -446,7 +446,7 @@ class SettingsService:
     def get_bool(cls, key: str, default: bool = False) -> bool:
         """Read setting as boolean with safe fallback on corruption."""
         val = cls.get_value(key)
-        if val is None or val == "":
+        if val is None or getattr(val, "_is_none", False) or not str(val).strip() or str(val).strip().lower() in ("none", "null", "undefined"):
             return default
         if isinstance(val, bool):
             return val
@@ -462,7 +462,7 @@ class SettingsService:
     def get_float(cls, key: str, default: float = 0.0) -> float:
         """Read setting as float with safe fallback on corruption."""
         val = cls.get_value(key)
-        if val is None or val == "":
+        if val is None or getattr(val, "_is_none", False) or not str(val).strip() or str(val).strip().lower() in ("none", "null", "undefined"):
             return default
         try:
             return float(val)
@@ -474,7 +474,7 @@ class SettingsService:
     def get_str(cls, key: str, default: str = "") -> str:
         """Read setting as string with safe fallback."""
         val = cls.get_value(key)
-        if val is None:
+        if val is None or getattr(val, "_is_none", False) or str(val).strip().lower() in ("none", "null", "undefined"):
             return default
         return str(val)
 

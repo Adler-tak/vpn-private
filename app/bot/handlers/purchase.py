@@ -214,8 +214,6 @@ async def handle_product_selected(callback: CallbackQuery, state: FSMContext, db
         parse_mode="HTML",
     )
     await callback.answer()
-    await callback.answer()
-    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sel_loc:"), PurchaseOrderState.selecting_location)
@@ -834,6 +832,8 @@ async def handle_card_receipt_photo(
 
     # Validate file type and size
     is_text_txid = False
+    txid_val = None
+    file_id = None
     if message.photo:
         file_id = message.photo[-1].file_id
     elif message.document:
@@ -843,7 +843,7 @@ async def handle_card_receipt_photo(
         file_id = doc.file_id
     elif message.text:
         is_text_txid = True
-        file_id = f"TXID:{message.text.strip()}"
+        txid_val = message.text.strip()
     else:
         return await message.answer("⚠️ لطفاً تصویر فیش یا کد هش تراکنش خود را ارسال فرمایید.")
 
@@ -856,20 +856,46 @@ async def handle_card_receipt_photo(
     if receipt:
         receipt.telegram_file_id = file_id
         receipt.submitted_amount_toman = payment.amount_toman
+        if txid_val:
+            receipt.transaction_ref = txid_val
     else:
         receipt = PaymentReceipt(
             id=uuid.uuid4(),
             payment_id=payment.id,
             telegram_file_id=file_id,
+            transaction_ref=txid_val,
             submitted_amount_toman=payment.amount_toman,
         )
         db_session.add(receipt)
+    if txid_val:
+        payment.reference_id = txid_val
     await db_session.commit()
+
+    order = await db_session.get(Order, payment.order_id) if payment.order_id else None
+    user_coupon_note = ""
+    coupon_info = ""
+    product_name = ""
+    if order and order.product_id:
+        prod = await db_session.get(Product, order.product_id)
+        if prod:
+            product_name = f"\n📦 <b>پلن انتخابی:</b> {html.escape(prod.name)}"
+        if order.coupon_id:
+            from app.database.models.reseller import Coupon
+            cpn = await db_session.get(Coupon, order.coupon_id)
+            if cpn:
+                orig_toman = (prod.price_irr // 10) if (prod and prod.price_irr) else payment.amount_toman
+                diff_toman = max(0, orig_toman - payment.amount_toman)
+                user_coupon_note = f"\n🎟 <b>کد تخفیف:</b> <code>{html.escape(cpn.code)}</code> ({cpn.discount_percent}%)"
+                coupon_info = (
+                    f"\n🎟 <b>کد تخفیف:</b> <code>{html.escape(cpn.code)}</code>"
+                    f" ({cpn.discount_percent}% تخفیف - کسر: {diff_toman:,} تومان)"
+                    f"\n💵 <b>مبلغ اصلی:</b> <s>{orig_toman:,}</s> تومان"
+                )
 
     method_fa = "ارز دیجیتال (تتر TRC-20)" if payment.provider == PaymentMethod.CRYPTO else "کارت به کارت"
     await message.answer(
         f"✅ <b>رسید پرداخت ({method_fa}) شما با موفقیت ثبت شد.</b>\n\n"
-        f"💰 <b>مبلغ فیش:</b> <b>{payment.amount_toman:,} تومان</b>\n"
+        f"💰 <b>مبلغ فیش:</b> <b>{payment.amount_toman:,} تومان</b>{user_coupon_note}\n"
         f"🔖 <b>شناسه پیگیری:</b> <code>{payment.tracking_code}</code>\n\n"
         "⏳ رسید برای مدیریت ارسال شد و به محض تایید، سرویس شما فعال و تحویل داده می‌شود.",
         parse_mode="HTML",
@@ -881,22 +907,15 @@ async def handle_card_receipt_photo(
     u_username = f"@{html.escape(db_user.username)}" if db_user.username else "ندارد"
     u_name = html.escape(db_user.first_name or "")
 
-    order = await db_session.get(Order, payment.order_id) if payment.order_id else None
-    product_name = ""
-    if order and order.product_id:
-        prod = await db_session.get(Product, order.product_id)
-        if prod:
-            product_name = f"\n📦 <b>پلن انتخابی:</b> {html.escape(prod.name)}"
-
     admin_caption = (
         f"🔔 <b>رسید واریزی جدید جهت تایید ({html.escape(method_fa)})</b>\n\n"
         f"👤 <b>کاربر:</b> {u_name} ({u_username})\n"
-        f"🆔 <b>شناسه کاربر:</b> <code>{db_user.telegram_id}</code>{product_name}\n"
-        f"💰 <b>مبلغ:</b> <b>{payment.amount_toman:,} تومان</b>\n"
+        f"🆔 <b>شناسه کاربر:</b> <code>{db_user.telegram_id}</code>{product_name}{coupon_info}\n"
+        f"💰 <b>مبلغ فیش:</b> <b>{payment.amount_toman:,} تومان</b>\n"
         f"🔖 <b>کد پیگیری:</b> <code>{payment.tracking_code}</code>\n"
     )
-    if is_text_txid:
-        admin_caption += f"🔗 <b>کد رهگیری / TXID:</b>\n<code>{html.escape(message.text.strip())}</code>\n"
+    if is_text_txid and txid_val:
+        admin_caption += f"🔗 <b>کد رهگیری / TXID:</b>\n<code>{html.escape(txid_val)}</code>\n"
 
     approval_kb = get_admin_payment_approval_keyboard(str(payment.id))
 

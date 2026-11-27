@@ -32,15 +32,9 @@ class MandatoryChannelJoinMiddleware(BaseMiddleware):
         if not event_user:
             return await handler(event, data)
 
-        # Allow /admin command and admin callbacks even if not in channel so admin is never locked out of panel
-        is_admin_action = False
-        if isinstance(event, Message) and event.text and event.text.startswith("/admin"):
-            is_admin_action = True
-        elif isinstance(event, CallbackQuery) and event.data and event.data.startswith("admin_"):
-            is_admin_action = True
-
+        # Admins are globally exempt from mandatory channel membership
         admin_ids = [int(a) for a in getattr(settings, "ADMIN_TELEGRAM_IDS", []) if str(a).isdigit()]
-        if is_admin_action and event_user.id in admin_ids:
+        if event_user.id in admin_ids:
             return await handler(event, data)
 
         # Allow check_channel_membership callback query to reach its dedicated handler
