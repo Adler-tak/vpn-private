@@ -7582,6 +7582,80 @@ async def apply_bulk_compensation_endpoint(
         raise HTTPException(status_code=500, detail="خطا در اعمال روزهای جبران قطعی.")
 
 
+# ==============================================================================
+# 28. Balancer Location Matrix Management (PIA & Windscribe)
+# ==============================================================================
+
+class ToggleBalancerLocationRequest(BaseModel):
+    balancer_tag: str
+    is_active: bool
+
+
+class SetBalancerProviderRequest(BaseModel):
+    balancer_tag: str
+    active_provider: str
+
+
+@router.get("/balancer-locations")
+async def get_balancer_locations_endpoint(
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Returns matrix of all balancer locations with PIA/Windscribe coverage and active state."""
+    from app.services.balancer_location_service import BalancerLocationService
+    locations = await BalancerLocationService.get_all_locations(session=db)
+    summary = await BalancerLocationService.get_summary(session=db)
+    return {
+        "success": True,
+        "summary": summary,
+        "locations": locations,
+    }
+
+
+@router.post("/balancer-locations/toggle")
+async def toggle_balancer_location_endpoint(
+    req: ToggleBalancerLocationRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Toggles active/inactive state of a balancer location."""
+    from app.services.balancer_location_service import BalancerLocationService
+    res = await BalancerLocationService.toggle_location(
+        balancer_tag=req.balancer_tag,
+        is_active=req.is_active,
+        session=db
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "خطا در تغییر وضعیت لوکیشن"))
+
+    await record_audit(
+        db,
+        action="BALANCER_LOCATION_TOGGLED",
+        details=f"Admin set balancer {req.balancer_tag} active={req.is_active}",
+        actor_id=admin.telegram_id,
+    )
+    return res
+
+
+@router.post("/balancer-locations/provider")
+async def set_balancer_provider_endpoint(
+    req: SetBalancerProviderRequest,
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Sets active provider routing mode for a balancer ('both', 'pia', 'windscribe')."""
+    from app.services.balancer_location_service import BalancerLocationService
+    res = await BalancerLocationService.set_active_provider(
+        balancer_tag=req.balancer_tag,
+        active_provider=req.active_provider,
+        session=db
+    )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("error", "خطا در تغییر ارائه‌دهنده"))
+    return res
+
+
+
 
 
 

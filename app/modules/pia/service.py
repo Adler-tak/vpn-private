@@ -48,6 +48,18 @@ class PiaSyncService:
     }
 
     @classmethod
+    def get_target_balancers(cls) -> List[str]:
+        """Dynamically loads active PIA balancer tags from database, falling back safely."""
+        try:
+            from app.services.balancer_location_service import BalancerLocationService
+            tags = BalancerLocationService.get_active_tags_sync(provider="pia")
+            if tags:
+                return tags
+        except Exception as e:
+            logger.warning(f"Error reading dynamic balancer tags in PIA service: {e}")
+        return TARGET_BALANCERS
+
+    @classmethod
     def get_status(cls) -> Dict[str, Any]:
         """Returns the current sync execution status."""
         return cls._status
@@ -199,9 +211,10 @@ class PiaSyncService:
             logger.error(f"PIA Auth error: {exc}")
         return None
 
-    @staticmethod
-    def fetch_candidate_nodes(token: str) -> Dict[str, List[Dict]]:
-        nodes_by_balancer = {b: [] for b in TARGET_BALANCERS}
+    @classmethod
+    def fetch_candidate_nodes(cls, token: str) -> Dict[str, List[Dict]]:
+        active_balancers = cls.get_target_balancers()
+        nodes_by_balancer = {b: [] for b in active_balancers}
         seen_ips = set()
 
         # 1. Load known nodes from 3X-UI API
@@ -217,7 +230,7 @@ class PiaSyncService:
                 outbounds = {o.get("tag"): o for o in cfg_existing.get("outbounds", []) if "tag" in o}
                 for b in cfg_existing.get("routing", {}).get("balancers", []):
                     b_tag = b.get("tag")
-                    if b_tag in TARGET_BALANCERS:
+                    if b_tag in active_balancers:
                         for s in b.get("selector", []):
                             o = outbounds.get(s)
                             if o:
@@ -252,12 +265,19 @@ class PiaSyncService:
                 region_to_balancer = {
                     "poland": "PL", "cyprus": "az", "denmark": "DK", "yerevan": "YRM",
                     "egypt": "EG", "greenland": "GL", "ghana": "GH", "no": "NO",
-                    "france": "FR", "ae": "AR",
+                    "france": "FR", "ae": "AR", "sweden": "SE", "turkey": "TR",
+                    "japan": "JP", "singapore": "SG", "finland": "FI", "austria": "AT",
+                    "australia": "AU", "belgium": "BE", "brazil": "BR", "bulgaria": "BG",
+                    "czech": "CZ", "greece": "GR", "hungary": "HU", "ireland": "IE",
+                    "israel": "IL", "india": "IN", "mexico": "MX", "newzealand": "NZ",
+                    "portugal": "PT", "ukraine": "UA", "southafrica": "ZA", "iceland": "IS",
+                    "switzerland": "CH", "canada": "CA", "spain": "ES", "romania": "RO",
+                    "hongkong": "HK",
                 }
 
                 for reg in data.get("regions", []):
                     rid = reg.get("id", "")
-                    country = reg.get("country", "")
+                    country = str(reg.get("country", "")).upper()
 
                     b_target = None
                     if rid in region_to_balancer:
@@ -272,8 +292,10 @@ class PiaSyncService:
                         b_target = "UK"
                     elif country == "NL" or rid.startswith("nl"):
                         b_target = "NL"
+                    elif country in active_balancers:
+                        b_target = country
 
-                    if b_target and b_target in TARGET_BALANCERS:
+                    if b_target and b_target in active_balancers:
                         for s in reg.get("servers", {}).get("wg", []):
                             ip = s.get("ip")
                             if ip and ip not in seen_ips:
@@ -289,6 +311,7 @@ class PiaSyncService:
                                     "pubkey": s.get("pubkey", ""),
                                     "piaHostname": cn
                                 })
+                logger.info(f"Loaded {len(seen_ips)} live PIA candidate nodes across {len(active_balancers)} active balancers.")
         except Exception as e:
             logger.warning(f"Error fetching PIA serverlist additions: {e}")
 
@@ -378,7 +401,8 @@ class PiaSyncService:
         if not all_tasks:
             return {"success": False, "error": "هیچ نود کاندیدی یافت نشد."}
 
-        registered_by_balancer = {b: [] for b in TARGET_BALANCERS}
+        active_balancers = cls.get_target_balancers()
+        registered_by_balancer = {b: [] for b in active_balancers}
         all_outbounds = []
         used_tags = set()
 
@@ -468,7 +492,7 @@ class PiaSyncService:
             fallback_pool = [clean_outbounds[0].get("tag", "direct")]
 
         balancer_map = {b.get("tag"): b for b in balancers}
-        for b_tag in TARGET_BALANCERS:
+        for b_tag in active_balancers:
             existing_bal = balancer_map.get(b_tag, {})
             existing_selectors = existing_bal.get("selector", [])
             clean_selectors = [s for s in existing_selectors if not str(s).startswith("pia-")]
@@ -546,5 +570,5 @@ class PiaSyncService:
             "success": True,
             "total_live": total_live,
             "restarted": restarted,
-            "counts_by_balancer": {b: len(registered_by_balancer[b]) for b in TARGET_BALANCERS}
+            "counts_by_balancer": {b: len(registered_by_balancer.get(b, [])) for b in active_balancers}
         }

@@ -1341,6 +1341,46 @@
 
           </div>
 
+          <!-- Balancer Location Matrix (PIA & Windscribe Coverage) -->
+          <div class="p-5 rounded-2xl glass-card space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  <i class="bi bi-globe-americas text-sky-400"></i>
+                  <span>ماتریس جامع لوکیشن‌ها و بالانسرها (PIA & Windscribe)</span>
+                </h3>
+                <p class="text-xs text-slate-400 mt-1">مشاهده و انتخاب داینامیک لوکیشن‌های فعال روی سرور مستر به همراه تفکیک منبع پوشش هر کشور</p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-semibold">
+                  کل: <b id="loc-matrix-total">0</b>
+                </span>
+                <span class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-xs font-semibold">
+                  فعال روی مستر: <b id="loc-matrix-active">0</b>
+                </span>
+                <button onclick="loadBalancerLocations()" id="btn-refresh-loc-matrix" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition">
+                  <i class="bi bi-arrow-repeat" id="icon-refresh-loc-matrix"></i>
+                  <span>بروزرسانی لیست</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Filter tabs -->
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <button onclick="filterBalancerLocations('all')" id="tab-loc-all" class="px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold transition">همه لوکیشن‌ها</button>
+              <button onclick="filterBalancerLocations('active')" id="tab-loc-active" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">فعال روی مستر (تیک‌خورده ✅)</button>
+              <button onclick="filterBalancerLocations('both')" id="tab-loc-both" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🟢 مشترک [PIA + WD]</button>
+              <button onclick="filterBalancerLocations('pia')" id="tab-loc-pia" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🔵 فقط PIA</button>
+              <button onclick="filterBalancerLocations('wd')" id="tab-loc-wd" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🟣 فقط WD</button>
+            </div>
+
+            <!-- Matrix items container -->
+            <div id="balancer-locations-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <!-- Populated by JS -->
+            </div>
+          </div>
+
+
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl glass-card">
             <div>
               <h3 class="text-sm font-bold text-white flex items-center gap-2">
@@ -5624,6 +5664,7 @@
         loadPanels();
         loadServers();
         loadServerHealth();
+        if (typeof loadBalancerLocations === 'function') loadBalancerLocations();
         loadXuiBackups();
         if (typeof loadPiaStatus === 'function') loadPiaStatus();
         if (typeof loadWindscribeStatus === 'function') loadWindscribeStatus();
@@ -9318,6 +9359,167 @@
         loadSubscriptions();
       } catch (e) {
         showToast(e.message || 'خطا در تغییر وضعیت اشتراک', 'error');
+      }
+    }
+
+    // --- 3.5 Balancer Location Matrix Management ---
+    let _allBalancerLocations = [];
+    let _currentLocationFilter = 'all';
+
+    async function loadBalancerLocations() {
+      const btnIcon = document.getElementById('icon-refresh-loc-matrix');
+      if (btnIcon) btnIcon.classList.add('animate-spin');
+      try {
+        const res = await apiFetch('/balancer-locations');
+        if (res && res.locations) {
+          _allBalancerLocations = res.locations;
+          if (res.summary) {
+            const elTotal = document.getElementById('loc-matrix-total');
+            const elActive = document.getElementById('loc-matrix-active');
+            if (elTotal) elTotal.textContent = res.summary.total_locations ?? _allBalancerLocations.length;
+            if (elActive) elActive.textContent = res.summary.active_locations ?? 0;
+          }
+          renderBalancerLocations();
+        }
+      } catch (err) {
+        console.error('Failed to load balancer locations:', err);
+      } finally {
+        if (btnIcon) btnIcon.classList.remove('animate-spin');
+      }
+    }
+
+    function filterBalancerLocations(filterType) {
+      _currentLocationFilter = filterType;
+      ['all', 'active', 'both', 'pia', 'wd'].forEach(f => {
+        const el = document.getElementById(`tab-loc-${f}`);
+        if (el) {
+          if (f === filterType) {
+            el.className = 'px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold transition shadow-sm';
+          } else {
+            el.className = 'px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition';
+          }
+        }
+      });
+      renderBalancerLocations();
+    }
+
+    function renderBalancerLocations() {
+      const container = document.getElementById('balancer-locations-container');
+      if (!container) return;
+
+      let list = _allBalancerLocations || [];
+      if (_currentLocationFilter === 'active') {
+        list = list.filter(l => l.is_active);
+      } else if (_currentLocationFilter === 'both') {
+        list = list.filter(l => l.coverage_type === 'BOTH');
+      } else if (_currentLocationFilter === 'pia') {
+        list = list.filter(l => l.coverage_type === 'PIA');
+      } else if (_currentLocationFilter === 'wd') {
+        list = list.filter(l => l.coverage_type === 'WD');
+      }
+
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="col-span-full p-6 text-center text-slate-400 bg-slate-900/40 rounded-2xl border border-slate-800">
+            هیچ لوکیشنی در این فیلتر یافت نشد.
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = list.map(loc => {
+        const isActive = !!loc.is_active;
+        const tag = loc.balancer_tag;
+        const flag = loc.flag_emoji || '🌐';
+        const nameFa = loc.name_fa || loc.balancer_tag;
+        const nameEn = loc.name_en || '';
+        const covBadge = loc.coverage_badge || '⚪️';
+        const covType = loc.coverage_type;
+        const activeProv = loc.active_provider || 'both';
+
+        let cardBorder = isActive ? 'border-emerald-500/40 bg-emerald-950/10' : 'border-slate-800 bg-slate-900/30';
+        let statusBadge = isActive
+          ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+               <i class="bi bi-check-circle-fill"></i> فعال روی مستر
+             </span>`
+          : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700/50">
+               <i class="bi bi-circle"></i> غیرفعال
+             </span>`;
+
+        let provOptions = '';
+        if (covType === 'BOTH') {
+          provOptions = `
+            <select onchange="updateBalancerProvider('${tag}', this.value)" class="text-[11px] bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 focus:outline-none focus:border-indigo-500">
+              <option value="both" ${activeProv === 'both' ? 'selected' : ''}>ارائه‌دهنده: هر دو (ترکیبی)</option>
+              <option value="windscribe" ${activeProv === 'windscribe' ? 'selected' : ''}>فقط Windscribe</option>
+              <option value="pia" ${activeProv === 'pia' ? 'selected' : ''}>فقط PIA</option>
+            </select>
+          `;
+        }
+
+        return `
+          <div class="p-3.5 rounded-2xl border ${cardBorder} transition flex flex-col justify-between gap-3 shadow-sm hover:border-slate-700">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-center gap-2.5">
+                <span class="text-2xl">${flag}</span>
+                <div>
+                  <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>${nameFa}</span>
+                    <span class="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-indigo-300 border border-slate-700">${tag}</span>
+                  </div>
+                  <div class="text-[11px] text-slate-400 mt-0.5">${nameEn}</div>
+                </div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" ${isActive ? 'checked' : ''} onchange="toggleBalancerLocationActive('${tag}', this.checked)" class="sr-only peer">
+                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <div class="flex items-center gap-1.5">
+                ${statusBadge}
+                <span class="text-[11px] font-semibold text-slate-300">${covBadge}</span>
+              </div>
+              <div>${provOptions}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function toggleBalancerLocationActive(tag, isChecked) {
+      try {
+        const res = await apiFetch('/balancer-locations/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ balancer_tag: tag, is_active: isChecked }),
+        });
+        showToast(res.is_active ? `لوکیشن ${tag} فعال شد.` : `لوکیشن ${tag} غیرفعال شد.`, 'success');
+        const loc = _allBalancerLocations.find(l => l.balancer_tag === tag);
+        if (loc) loc.is_active = isChecked;
+        const activeCount = _allBalancerLocations.filter(l => l.is_active).length;
+        const elActive = document.getElementById('loc-matrix-active');
+        if (elActive) elActive.textContent = activeCount;
+        renderBalancerLocations();
+      } catch (err) {
+        showToast(err.message || 'خطا در تغییر وضعیت لوکیشن', 'error');
+        loadBalancerLocations();
+      }
+    }
+
+    async function updateBalancerProvider(tag, providerValue) {
+      try {
+        await apiFetch('/balancer-locations/provider', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ balancer_tag: tag, active_provider: providerValue }),
+        });
+        showToast(`ارائه‌دهنده لوکیشن ${tag} با موفقیت تنظیم شد.`, 'success');
+        const loc = _allBalancerLocations.find(l => l.balancer_tag === tag);
+        if (loc) loc.active_provider = providerValue;
+      } catch (err) {
+        showToast(err.message || 'خطا در ذخیره ارائه‌دهنده', 'error');
       }
     }
 

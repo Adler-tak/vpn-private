@@ -1901,6 +1901,9 @@ async def list_admin_locations(callback: CallbackQuery, db_user: User, db_sessio
 
     buttons = [
         [
+            InlineKeyboardButton(text="🌍 ماتریس بالانسرها (PIA & WD)", callback_data="admin_balancer_matrix:0"),
+        ],
+        [
             InlineKeyboardButton(text="➕ افزودن لوکیشن جدید", callback_data="admin_add_loc_start"),
             InlineKeyboardButton(text="🌀 مدیریت وینداسکرایب (WD)", callback_data="admin_windscribe_menu"),
         ]
@@ -2060,6 +2063,88 @@ async def admin_ws_trigger_sync_handler(callback: CallbackQuery, db_user: User):
             [InlineKeyboardButton(text="🌀 بازگشت به منوی وینداسکرایب", callback_data="admin_windscribe_menu")]
         ])
     )
+
+
+@router.callback_query(F.data.startswith("admin_balancer_matrix:"))
+async def admin_balancer_matrix_handler(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Interactive Balancer Location Matrix menu for Telegram bot."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    page = int(callback.data.split(":")[1])
+    PAGE_SIZE = 8
+
+    from app.services.balancer_location_service import BalancerLocationService
+    locations = await BalancerLocationService.get_all_locations(session=db_session)
+    summary = await BalancerLocationService.get_summary(session=db_session)
+
+    total_pages = max(1, (len(locations) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    page_items = locations[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+    text = (
+        "🌍 <b>ماتریس داینامیک بالانسرها (PIA & Windscribe):</b>\n\n"
+        f"📊 <b>آمار:</b> کل: <b>{summary['total_locations']}</b> | فعال روی مستر: <b>{summary['active_locations']}</b>\n"
+        f"🟢 مشترک [PIA+WD]: <b>{summary['both_count']}</b> | 🔵 فقط PIA: <b>{summary['pia_only_count']}</b> | 🟣 فقط WD: <b>{summary['wd_only_count']}</b>\n\n"
+        "💡 <i>با لمس هر دکمه زیر، بالانسر آن کشور را روی سرور مستر فعال یا غیرفعال کنید:</i>\n"
+        f"📄 <i>صفحه {page + 1} از {total_pages}</i>\n"
+    )
+
+    buttons = []
+    for loc in page_items:
+        status_icon = "✅" if loc["is_active"] else "⚪️"
+        cov_tag = loc["coverage_type"]
+        cov_icon = "🟢" if cov_tag == "BOTH" else ("🔵" if cov_tag == "PIA" else "🟣")
+        btn_label = f"{status_icon} {loc['flag_emoji']} {loc['name_fa']} ({loc['balancer_tag']}) {cov_icon}"
+        buttons.append([InlineKeyboardButton(text=btn_label, callback_data=f"admin_toggle_bal:{loc['balancer_tag']}:{page}")])
+
+    # Navigation buttons
+    nav_row = []
+    if page > 0:
+        nav_row.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"admin_balancer_matrix:{page - 1}"))
+    nav_row.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data=f"admin_balancer_matrix:{page}"))
+    if page < total_pages - 1:
+        nav_row.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"admin_balancer_matrix:{page + 1}"))
+    if nav_row:
+        buttons.append(nav_row)
+
+    buttons.append([
+        InlineKeyboardButton(text="🔄 همگام‌سازی نودهای WD", callback_data="admin_ws_trigger_sync"),
+        InlineKeyboardButton(text="🔙 بازگشت به لوکیشن‌ها", callback_data="admin_manage_locations"),
+    ])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await callback.message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_toggle_bal:"))
+async def admin_toggle_balancer_handler(callback: CallbackQuery, db_user: User, db_session: AsyncSession):
+    """Toggle a balancer active/inactive state directly from Telegram bot."""
+    if not is_admin(db_user):
+        return await callback.answer("دسترسی غیرمجاز", show_alert=True)
+
+    parts = callback.data.split(":")
+    b_tag = parts[1]
+    page = int(parts[2]) if len(parts) > 2 else 0
+
+    from app.services.balancer_location_service import BalancerLocationService
+    locations = await BalancerLocationService.get_all_locations(session=db_session)
+    current = next((l for l in locations if l["balancer_tag"] == b_tag), None)
+    if not current:
+        return await callback.answer("لوکیشن یافت نشد.", show_alert=True)
+
+    new_state = not current["is_active"]
+    await BalancerLocationService.toggle_location(balancer_tag=b_tag, is_active=new_state, session=db_session)
+
+    status_msg = f"لوکیشن {b_tag} فعال شد ✅" if new_state else f"لوکیشن {b_tag} خاموش شد ⚪️"
+    await callback.answer(status_msg, show_alert=False)
+
+    callback.data = f"admin_balancer_matrix:{page}"
+    await admin_balancer_matrix_handler(callback, db_user, db_session)
 
 
 @router.callback_query(F.data.startswith("admin_loc_detail:"))

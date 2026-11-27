@@ -202,6 +202,13 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.warning(f"Could not seed system settings table: {err}")
 
+        # Initialize and seed dynamic balancer locations table
+        try:
+            from app.services.balancer_location_service import BalancerLocationService
+            await BalancerLocationService.initialize_and_seed()
+        except Exception as err:
+            logger.warning(f"Could not seed balancer locations table: {err}")
+
         # Synchronize existing database inbounds into Server entities on startup dynamically
         try:
             from app.database.session import AsyncSessionLocal

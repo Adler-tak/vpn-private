@@ -702,6 +702,18 @@ class WindscribeSyncService:
         }
 
     @classmethod
+    def get_target_balancers(cls) -> List[str]:
+        """Dynamically loads active Windscribe balancer tags from database, falling back safely."""
+        try:
+            from app.services.balancer_location_service import BalancerLocationService
+            tags = BalancerLocationService.get_active_tags_sync(provider="windscribe")
+            if tags:
+                return tags
+        except Exception as e:
+            logger.warning(f"Error reading dynamic balancer tags in Windscribe service: {e}")
+        return TARGET_BALANCERS
+
+    @classmethod
     def fetch_candidate_nodes(cls) -> Dict[str, List[Dict[str, Any]]]:
         """
         Fetches candidate Windscribe WireGuard nodes:
@@ -710,7 +722,8 @@ class WindscribeSyncService:
         Groups nodes by target balancers: DE, US-BL, NL, FR, ITALY, UK, SE, NO, PL, DK, TR, etc.
         All nodes formatted with prefix `wd-<country>-<city>`.
         """
-        nodes_by_balancer: Dict[str, List[Dict[str, Any]]] = {b: [] for b in TARGET_BALANCERS}
+        active_balancers = cls.get_target_balancers()
+        nodes_by_balancer: Dict[str, List[Dict[str, Any]]] = {b: [] for b in active_balancers}
         seen_ips = set()
 
         # 1. Query official Windscribe server list endpoint
@@ -749,8 +762,10 @@ class WindscribeSyncService:
                             if kw in loc_name:
                                 b_target = bal
                                 break
+                    if not b_target and country_raw in active_balancers:
+                        b_target = country_raw
 
-                    if not b_target or b_target not in TARGET_BALANCERS:
+                    if not b_target or b_target not in active_balancers:
                         continue
 
                     country_slug = country_raw.lower() if country_raw else b_target.lower()
@@ -836,7 +851,7 @@ class WindscribeSyncService:
             for seed in FALLBACK_SEED_NODES:
                 b_target = seed["balancer"]
                 ip = seed["ip"]
-                if ip not in seen_ips and b_target in TARGET_BALANCERS:
+                if ip not in seen_ips and b_target in active_balancers:
                     seen_ips.add(ip)
                     tag = f"wd-{seed['country']}-{seed['city']}"
                     nodes_by_balancer[b_target].append({
@@ -951,7 +966,8 @@ class WindscribeSyncService:
         used_tags = {o.get("tag") for o in clean_outbounds if "tag" in o}
 
         all_new_outbounds = []
-        registered_by_balancer: Dict[str, List[str]] = {b: [] for b in TARGET_BALANCERS}
+        active_balancers = cls.get_target_balancers()
+        registered_by_balancer: Dict[str, List[str]] = {b: [] for b in active_balancers}
 
         # 3. Generate WireGuard Outbounds with prefix `wd-`
         for node in all_candidate_nodes:
@@ -1016,7 +1032,7 @@ class WindscribeSyncService:
             fallback_pool = [clean_outbounds[0].get("tag", "direct")]
 
         balancer_map = {b.get("tag"): b for b in balancers}
-        for b_tag in TARGET_BALANCERS:
+        for b_tag in active_balancers:
             # Preserve existing non-wd selectors (e.g. pia- selectors) and append new wd- selectors
             existing_bal = balancer_map.get(b_tag, {})
             existing_selectors = existing_bal.get("selector", [])
@@ -1093,5 +1109,5 @@ class WindscribeSyncService:
             "success": True,
             "total_live": total_live,
             "restarted": restarted,
-            "counts_by_balancer": {b: len(registered_by_balancer[b]) for b in TARGET_BALANCERS},
+            "counts_by_balancer": {b: len(registered_by_balancer.get(b, [])) for b in active_balancers},
         }

@@ -1,7 +1,7 @@
 """Central export of all database models for SQLAlchemy and Alembic."""
 from app.database.session import Base
 from app.database.models.user import User, Wallet
-from app.database.models.panel import Panel, Inbound, Server
+from app.database.models.panel import Panel, Inbound, Server, BalancerLocation
 from app.database.models.product import Product
 from app.database.models.order import Order
 from app.database.models.subscription import Subscription
@@ -22,6 +22,7 @@ __all__ = [
     "Panel",
     "Inbound",
     "Server",
+    "BalancerLocation",
     "Product",
     "Order",
     "Subscription",

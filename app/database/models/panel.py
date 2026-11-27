@@ -134,3 +134,22 @@ class Server(Base):
     panel = relationship("Panel", back_populates="servers")
     inbound = relationship("Inbound", back_populates="servers")
     subscriptions = relationship("Subscription", back_populates="server")
+
+
+class BalancerLocation(Base):
+    __tablename__ = "balancer_locations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    country_code = Column(String(16), unique=True, nullable=False, index=True) # de, us, tr, ca, etc.
+    balancer_tag = Column(String(32), unique=True, nullable=False, index=True) # DE, US-BL, TR, CA, etc.
+    name_en = Column(String(64), nullable=False)
+    name_fa = Column(String(64), nullable=False)
+    flag_emoji = Column(String(16), default="🌐", nullable=False)
+    is_active = Column(Boolean, default=False, nullable=False, index=True) # Activated by admin for balancer
+    is_supported_pia = Column(Boolean, default=False, nullable=False)
+    is_supported_wd = Column(Boolean, default=False, nullable=False)
+    active_provider = Column(String(32), default="both", nullable=False) # 'both', 'pia', 'windscribe'
+    sort_order = Column(Integer, default=100, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+
