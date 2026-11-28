@@ -1349,14 +1349,14 @@
                   <i class="bi bi-globe-americas text-sky-400"></i>
                   <span>ماتریس جامع لوکیشن‌ها و بالانسرها (PIA & Windscribe)</span>
                 </h3>
-                <p class="text-xs text-slate-400 mt-1">مشاهده و انتخاب داینامیک لوکیشن‌های فعال روی سرور مستر به همراه تفکیک منبع پوشش هر کشور</p>
+                <p class="text-xs text-slate-400 mt-1">مشاهده و انتخاب داینامیک لوکیشن‌های فعال بالانسر به همراه تفکیک منبع پوشش هر کشور</p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <span class="px-2.5 py-1 rounded-lg bg-sky-500/10 text-sky-300 border border-sky-500/20 text-xs font-semibold">
                   کل: <b id="loc-matrix-total">0</b>
                 </span>
                 <span class="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-xs font-semibold">
-                  فعال روی مستر: <b id="loc-matrix-active">0</b>
+                  لوکیشن‌های فعال: <b id="loc-matrix-active">0</b>
                 </span>
                 <button onclick="loadBalancerLocations()" id="btn-refresh-loc-matrix" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition">
                   <i class="bi bi-arrow-repeat" id="icon-refresh-loc-matrix"></i>
@@ -1368,7 +1368,7 @@
             <!-- Filter tabs -->
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <button onclick="filterBalancerLocations('all')" id="tab-loc-all" class="px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold transition">همه لوکیشن‌ها</button>
-              <button onclick="filterBalancerLocations('active')" id="tab-loc-active" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">فعال روی مستر (تیک‌خورده ✅)</button>
+              <button onclick="filterBalancerLocations('active')" id="tab-loc-active" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">لوکیشن‌های فعال (تیک‌خورده ✅)</button>
               <button onclick="filterBalancerLocations('both')" id="tab-loc-both" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🟢 مشترک [PIA + WD]</button>
               <button onclick="filterBalancerLocations('pia')" id="tab-loc-pia" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🔵 فقط PIA</button>
               <button onclick="filterBalancerLocations('wd')" id="tab-loc-wd" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition">🟣 فقط WD</button>
@@ -9630,7 +9630,7 @@
         let cardBorder = isActive ? 'border-emerald-500/40 bg-emerald-950/10' : 'border-slate-800 bg-slate-900/30';
         let statusBadge = isActive
           ? `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-               <i class="bi bi-check-circle-fill"></i> فعال روی مستر
+               <i class="bi bi-check-circle-fill"></i> فعال
              </span>`
           : `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800 text-slate-400 border border-slate-700/50">
                <i class="bi bi-circle"></i> غیرفعال

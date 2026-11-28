@@ -9,110 +9,110 @@ logger = logging.getLogger(__name__)
 
 # Master catalog of supported locations across PIA and Windscribe
 MASTER_LOCATION_CATALOG = [
-    # --- Current 21 Active Locations on Master Server ---
+    # --- Supported Balancer Locations Catalog ---
     {
         "balancer_tag": "DE", "country_code": "de", "name_en": "Germany", "name_fa": "آلمان",
-        "flag_emoji": "🇩🇪", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇩🇪", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 1
     },
     {
         "balancer_tag": "US-BL", "country_code": "us", "name_en": "United States", "name_fa": "آمریکا",
-        "flag_emoji": "🇺🇸", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇺🇸", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 2
     },
     {
         "balancer_tag": "NL", "country_code": "nl", "name_en": "Netherlands", "name_fa": "هلند",
-        "flag_emoji": "🇳🇱", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇳🇱", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 3
     },
     {
         "balancer_tag": "FR", "country_code": "fr", "name_en": "France", "name_fa": "فرانسه",
-        "flag_emoji": "🇫🇷", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇫🇷", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 4
     },
     {
         "balancer_tag": "ITALY", "country_code": "it", "name_en": "Italy", "name_fa": "ایتالیا",
-        "flag_emoji": "🇮🇹", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇮🇹", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 5
     },
     {
         "balancer_tag": "UK", "country_code": "uk", "name_en": "United Kingdom", "name_fa": "انگلیس",
-        "flag_emoji": "🇬🇧", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇬🇧", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 6
     },
     {
         "balancer_tag": "NO", "country_code": "no", "name_en": "Norway", "name_fa": "نروژ",
-        "flag_emoji": "🇳🇴", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇳🇴", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 7
     },
     {
         "balancer_tag": "PL", "country_code": "pl", "name_en": "Poland", "name_fa": "لهستان",
-        "flag_emoji": "🇵🇱", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇵🇱", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 8
     },
     {
         "balancer_tag": "DK", "country_code": "dk", "name_en": "Denmark", "name_fa": "دانمارک",
-        "flag_emoji": "🇩🇰", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇩🇰", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 9
     },
     {
         "balancer_tag": "SE", "country_code": "se", "name_en": "Sweden", "name_fa": "سوئد",
-        "flag_emoji": "🇸🇪", "is_active": True, "is_supported_pia": False, "is_supported_wd": True,
+        "flag_emoji": "🇸🇪", "is_active": False, "is_supported_pia": False, "is_supported_wd": True,
         "active_provider": "windscribe", "sort_order": 10
     },
     {
         "balancer_tag": "TR", "country_code": "tr", "name_en": "Turkey", "name_fa": "ترکیه",
-        "flag_emoji": "🇹🇷", "is_active": True, "is_supported_pia": False, "is_supported_wd": True,
+        "flag_emoji": "🇹🇷", "is_active": False, "is_supported_pia": False, "is_supported_wd": True,
         "active_provider": "windscribe", "sort_order": 11
     },
     {
         "balancer_tag": "CA", "country_code": "ca", "name_en": "Canada", "name_fa": "کانادا",
-        "flag_emoji": "🇨🇦", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇨🇦", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "both", "sort_order": 12
     },
     {
         "balancer_tag": "CH", "country_code": "ch", "name_en": "Switzerland", "name_fa": "سوئیس",
-        "flag_emoji": "🇨🇭", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇨🇭", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "windscribe", "sort_order": 13
     },
     {
         "balancer_tag": "ES", "country_code": "es", "name_en": "Spain", "name_fa": "اسپانیا",
-        "flag_emoji": "🇪🇸", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇪🇸", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "windscribe", "sort_order": 14
     },
     {
         "balancer_tag": "RO", "country_code": "ro", "name_en": "Romania", "name_fa": "رومانی",
-        "flag_emoji": "🇷🇴", "is_active": True, "is_supported_pia": True, "is_supported_wd": True,
+        "flag_emoji": "🇷🇴", "is_active": False, "is_supported_pia": True, "is_supported_wd": True,
         "active_provider": "windscribe", "sort_order": 15
     },
     {
         "balancer_tag": "az", "country_code": "cy", "name_en": "Cyprus", "name_fa": "قبرس",
-        "flag_emoji": "🇨🇾", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇨🇾", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 16
     },
     {
         "balancer_tag": "YRM", "country_code": "am", "name_en": "Armenia", "name_fa": "ارمنستان",
-        "flag_emoji": "🇦🇲", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇦🇲", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 17
     },
     {
         "balancer_tag": "EG", "country_code": "eg", "name_en": "Egypt", "name_fa": "مصر",
-        "flag_emoji": "🇪🇬", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇪🇬", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 18
     },
     {
         "balancer_tag": "GL", "country_code": "gl", "name_en": "Greenland", "name_fa": "گرینلند",
-        "flag_emoji": "🇬🇱", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇬🇱", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 19
     },
     {
         "balancer_tag": "GH", "country_code": "gh", "name_en": "Ghana", "name_fa": "غنا",
-        "flag_emoji": "🇬🇭", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇬🇭", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 20
     },
     {
         "balancer_tag": "AR", "country_code": "ae", "name_en": "UAE / Dubai", "name_fa": "امارات",
-        "flag_emoji": "🇦🇪", "is_active": True, "is_supported_pia": True, "is_supported_wd": False,
+        "flag_emoji": "🇦🇪", "is_active": False, "is_supported_pia": True, "is_supported_wd": False,
         "active_provider": "pia", "sort_order": 21
     },
     # --- Additional Catalog Locations (Ready to Activate Anytime) ---
@@ -228,10 +228,7 @@ MASTER_LOCATION_CATALOG = [
     },
 ]
 
-DEFAULT_ACTIVE_TAGS = [
-    "DE", "US-BL", "NL", "FR", "ITALY", "UK", "SE", "NO", "PL", "DK", "TR",
-    "az", "YRM", "EG", "GL", "GH", "AR", "CA", "CH", "ES", "RO"
-]
+DEFAULT_ACTIVE_TAGS: List[str] = []
 
 
 class BalancerLocationService:

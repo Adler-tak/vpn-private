@@ -40,10 +40,7 @@ DEFAULT_WG_PORT = 443
 DEFAULT_WG_ADDRESS = ["100.79.238.251/32", "fd54:4::6f16:8109:bd6d:60d8/128"]
 DEFAULT_REMOTE_DNS = ["10.255.255.3"]
 
-TARGET_BALANCERS = [
-    "DE", "US-BL", "NL", "FR", "ITALY", "UK", "SE", "NO", "PL", "DK", "TR",
-    "az", "YRM", "EG", "GL", "GH", "AR", "CA", "CH", "ES", "RO"
-]
+TARGET_BALANCERS: List[str] = []
 
 COUNTRY_CODE_TO_BALANCER: Dict[str, str] = {
     "DE": "DE",

@@ -31,10 +31,7 @@ DB_PATH = os.getenv("XUI_DB_PATH", "/etc/x-ui/x-ui.db")
 BAK_PATH = os.getenv("XUI_BAK_PATH", "/etc/x-ui/x-ui.db.bak")
 DOCKER_CONTAINER = "3x"
 
-TARGET_BALANCERS = [
-    "US-BL", "DE", "NO", "ITALY", "FR", "PL", "az", "DK", 
-    "YRM", "EG", "UK", "GL", "GH", "NL", "AR"
-]
+TARGET_BALANCERS: List[str] = []
 
 
 class PiaSyncService:
