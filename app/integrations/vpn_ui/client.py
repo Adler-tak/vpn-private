@@ -21,13 +21,14 @@ class VpnUIClient(ThreeXUIClient):
     def __init__(
         self,
         base_url: str,
-        username: str,
-        password: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         api_token: Optional[str] = None,
         login_secret: Optional[str] = None,
         otp_secret: Optional[str] = None,
         timeout: float = 15.0,
         verify_ssl: bool = False,
+        uri_path: Optional[str] = None,
     ):
         super().__init__(
             base_url=base_url,
@@ -38,6 +39,7 @@ class VpnUIClient(ThreeXUIClient):
             otp_secret=otp_secret,
             timeout=timeout,
             verify_ssl=verify_ssl,
+            uri_path=uri_path,
         )
         self._panel_type_cache: Optional[str] = None
 

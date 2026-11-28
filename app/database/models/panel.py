@@ -1,5 +1,6 @@
 """Panel, Inbound, and Server infrastructure models."""
 from datetime import datetime, timezone
+from typing import Optional
 import uuid
 from sqlalchemy import (
     BigInteger,
@@ -41,7 +42,19 @@ class Panel(Base):
     def __init__(self, **kwargs):
         if not kwargs.get("panel_type") or str(kwargs.get("panel_type")).strip().lower() in ("none", "null", ""):
             kwargs["panel_type"] = "3x-ui"
+        raw_uri = kwargs.pop("uri_path", None) or kwargs.pop("web_base_path", None)
+        if raw_uri and "base_url" in kwargs:
+            from app.integrations.xui.client import normalize_panel_base_url
+            kwargs["base_url"] = normalize_panel_base_url(kwargs["base_url"], uri_path=raw_uri)
+        if kwargs.get("api_token") or kwargs.get("_api_token_encrypted"):
+            if not kwargs.get("username"):
+                kwargs["username"] = "token_user"
+            if not kwargs.get("password") and not kwargs.get("_password_encrypted"):
+                kwargs["_password_encrypted"] = encrypt_credential("API_TOKEN_AUTH")
         super().__init__(**kwargs)
+        if raw_uri:
+            clean = "/" + str(raw_uri).strip().strip("/") + "/"
+            self._uri_path_override = clean
 
     @validates("panel_type")
     def validate_panel_type(self, key, value):
@@ -55,12 +68,55 @@ class Panel(Base):
             self.panel_type = "3x-ui"
 
     @property
+    def uri_path(self) -> Optional[str]:
+        if getattr(self, "_uri_path_override", None):
+            return self._uri_path_override
+        if not self.base_url:
+            return None
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.base_url)
+        path = parsed.path.strip()
+        if path and path != "/":
+            return "/" + path.strip("/") + "/"
+        return None
+
+    @uri_path.setter
+    def uri_path(self, val: Optional[str]):
+        if val and str(val).strip():
+            clean = "/" + str(val).strip().strip("/") + "/"
+            self._uri_path_override = clean
+            if self.base_url:
+                from app.integrations.xui.client import normalize_panel_base_url
+                self.base_url = normalize_panel_base_url(self.base_url, uri_path=clean)
+        else:
+            self._uri_path_override = None
+
+    @property
+    def web_base_path(self) -> Optional[str]:
+        return self.uri_path
+
+    @web_base_path.setter
+    def web_base_path(self, val: Optional[str]):
+        self.uri_path = val
+
+    @property
     def password(self) -> str:
-        return decrypt_credential(self._password_encrypted)
+        if not self._password_encrypted:
+            return ""
+        try:
+            return decrypt_credential(self._password_encrypted)
+        except Exception:
+            return ""
 
     @password.setter
-    def password(self, raw_pwd: str):
-        self._password_encrypted = encrypt_credential(raw_pwd)
+    def password(self, raw_pwd: Optional[str]):
+        if not raw_pwd:
+            if getattr(self, "api_token", None) or getattr(self, "_api_token_encrypted", None):
+                self._password_encrypted = encrypt_credential("API_TOKEN_AUTH")
+            else:
+                self._password_encrypted = ""
+        else:
+            self._password_encrypted = encrypt_credential(raw_pwd)
 
     @property
     def api_token(self) -> str:
@@ -69,8 +125,13 @@ class Panel(Base):
         return decrypt_credential(self._api_token_encrypted)
 
     @api_token.setter
-    def api_token(self, raw_token: str):
+    def api_token(self, raw_token: Optional[str]):
         self._api_token_encrypted = encrypt_credential(raw_token) if raw_token else None
+        if raw_token:
+            if not getattr(self, "username", None):
+                self.username = "token_user"
+            if not getattr(self, "_password_encrypted", None):
+                self._password_encrypted = encrypt_credential("API_TOKEN_AUTH")
 
     @property
     def login_secret(self) -> str:

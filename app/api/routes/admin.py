@@ -345,9 +345,10 @@ class PanelCreateRequest(BaseModel):
     name: str = Field(..., description="Display name for panel / server")
     base_url: str = Field(..., description="Full URL with port, e.g. http://185.x.x.x:2053")
     panel_type: Optional[str] = Field("3x-ui", description="Panel type: 3x-ui or vpn-ui")
-    username: str = Field(..., description="3X-UI admin username")
-    password: str = Field(..., description="3X-UI admin password")
+    username: Optional[str] = Field(None, description="3X-UI admin username (optional if api_token is provided)")
+    password: Optional[str] = Field(None, description="3X-UI admin password (optional if api_token is provided)")
     api_token: Optional[str] = Field(None, description="Optional 3X-UI Bearer API token")
+    uri_path: Optional[str] = Field(None, description="The URI path for the web panel. begins with '/' and concludes with '/'")
     login_secret: Optional[str] = Field(None, description="Optional 2FA LoginSecret / TOTP Base32 Key")
     otp_secret: Optional[str] = Field(None, description="Alias for login_secret")
     version: Optional[str] = "v3.11"
@@ -360,6 +361,7 @@ class PanelUpdateRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
     api_token: Optional[str] = None
+    uri_path: Optional[str] = Field(None, description="The URI path for the web panel. begins with '/' and concludes with '/'")
     login_secret: Optional[str] = None
     otp_secret: Optional[str] = None
     version: Optional[str] = None
@@ -3944,6 +3946,8 @@ async def list_panels(
             "base_url": p.base_url,
             "panel_type": getattr(p, "panel_type", "3x-ui") or "3x-ui",
             "username": p.username,
+            "uri_path": getattr(p, "uri_path", None),
+            "has_api_token": bool(getattr(p, "api_token", None)),
             "version": p.version,
             "is_active": p.is_active,
             "is_healthy": p.is_healthy,
@@ -3968,24 +3972,39 @@ async def create_panel(
     from app.integrations.xui.client import normalize_panel_base_url
     raw_url = req.base_url.strip()
     name = req.name.strip()
-    username = req.username.strip()
-    password = req.password.strip()
     panel_type = (req.panel_type or "3x-ui").strip().lower()
     api_token = req.api_token.strip() if req.api_token else None
+    uri_path = req.uri_path.strip() if req.uri_path else None
+    username = req.username.strip() if req.username else None
+    password = req.password.strip() if req.password else None
     login_secret = (req.login_secret or req.otp_secret or "").strip() or None
 
-    if not name or not raw_url or not username or not password:
+    if uri_path:
+        clean_uri = uri_path.strip()
+        if clean_uri and clean_uri != "/":
+            if not clean_uri.startswith("/"):
+                clean_uri = "/" + clean_uri
+            if not clean_uri.endswith("/"):
+                clean_uri = clean_uri + "/"
+            uri_path = clean_uri
+        else:
+            uri_path = None
+
+    if not name or not raw_url:
         raise HTTPException(status_code=400, detail="تمامی فیلدهای الزامی پنل را تکمیل فرمایید.")
+
+    if not api_token and (not username or not password):
+        raise HTTPException(status_code=400, detail="لطفاً یا کلید API Token و یا نام کاربری و رمز عبور را وارد فرمایید.")
 
     if len(raw_url) > 2048 or len(raw_url) < 8:
         raise HTTPException(status_code=400, detail="آدرس پنل نامعتبر است یا طول آن بیش از حد مجاز است.")
 
-    base_url = normalize_panel_base_url(raw_url)
+    base_url = normalize_panel_base_url(raw_url, uri_path=uri_path)
 
     if len(name) > 128:
         raise HTTPException(status_code=400, detail="نام پنل نمی‌تواند بیش از ۱۲۸ کاراکتر باشد.")
 
-    if len(username) > 128:
+    if username and len(username) > 128:
         raise HTTPException(status_code=400, detail="نام کاربری پنل نمی‌تواند بیش از ۱۲۸ کاراکتر باشد.")
 
     if panel_type not in ("3x-ui", "vpn-ui"):
@@ -4001,13 +4020,16 @@ async def create_panel(
         raise HTTPException(status_code=400, detail="پنلی با این نام یا آدرس قبلاً در سیستم ثبت شده است.")
 
     # 1. Live test connection and login
+    effective_username = username or "token_user"
+    effective_password = password or "API_TOKEN_AUTH"
     temp_panel = Panel(
         name=name,
         base_url=base_url,
         panel_type=panel_type,
-        username=username,
+        username=effective_username,
+        uri_path=uri_path,
     )
-    temp_panel.password = password
+    temp_panel.password = effective_password
     if api_token:
         temp_panel.api_token = api_token
     if login_secret:
@@ -4017,7 +4039,7 @@ async def create_panel(
     try:
         is_ok = await client.login()
         if not is_ok:
-            raise HTTPException(status_code=400, detail="احراز هویت با نام کاربری یا کلمه عبور وارد شده ناموفق بود. لطفاً دسترسی‌ها را بررسی نمایید.")
+            raise HTTPException(status_code=400, detail="احراز هویت با مشخصات وارد شده ناموفق بود. لطفاً دسترسی‌ها را بررسی نمایید.")
         
         # 2. Fetch inbounds
         inbounds_data = await client.get_inbounds()
@@ -4034,13 +4056,14 @@ async def create_panel(
         name=name,
         base_url=base_url,
         panel_type=panel_type,
-        username=username,
+        username=effective_username,
+        uri_path=uri_path,
         version=req.version or "v3.11",
         is_active=True,
         is_healthy=True,
         last_sync_at=datetime.now(timezone.utc),
     )
-    panel.password = password
+    panel.password = effective_password
     if api_token:
         panel.api_token = api_token
     if login_secret:
@@ -4505,30 +4528,73 @@ async def edit_panel_endpoint(
             raise HTTPException(status_code=400, detail="نام پنل بیش از ۱۲۸ کاراکتر است.")
         panel.name = req.name.strip()
 
-    if req.base_url is not None:
-        if not req.base_url.strip():
+    if req.uri_path is not None:
+        clean_uri = req.uri_path.strip()
+        if clean_uri and clean_uri != "/":
+            if not clean_uri.startswith("/"):
+                clean_uri = "/" + clean_uri
+            if not clean_uri.endswith("/"):
+                clean_uri = clean_uri + "/"
+            panel.uri_path = clean_uri
+        else:
+            panel.uri_path = None
+
+    if req.base_url is not None or req.uri_path is not None:
+        target_url = req.base_url.strip() if req.base_url is not None else panel.base_url
+        if not target_url:
             raise HTTPException(status_code=400, detail="آدرس پنل نمی‌تواند خالی باشد.")
-        if len(req.base_url.strip()) > 2048:
+        if len(target_url) > 2048:
             raise HTTPException(status_code=400, detail="آدرس پنل بیش از حد مجاز است.")
-        panel.base_url = normalize_panel_base_url(req.base_url.strip())
+        panel.base_url = normalize_panel_base_url(target_url, uri_path=panel.uri_path)
+
+    if req.api_token is not None:
+        panel.api_token = req.api_token.strip() or None
+        if panel.api_token:
+            if not panel.username or panel.username == "token_user":
+                panel.username = "token_user"
+            if not panel._password_encrypted:
+                panel.password = "API_TOKEN_AUTH"
 
     if req.username is not None:
         if not req.username.strip():
-            raise HTTPException(status_code=400, detail="نام کاربری نمی‌تواند خالی باشد.")
-        if len(req.username.strip()) > 128:
+            if not panel.api_token:
+                raise HTTPException(status_code=400, detail="نام کاربری نمی‌تواند خالی باشد.")
+            panel.username = "token_user"
+        elif len(req.username.strip()) > 128:
             raise HTTPException(status_code=400, detail="نام کاربری پنل بیش از ۱۲۸ کاراکتر است.")
-        panel.username = req.username.strip()
+        else:
+            panel.username = req.username.strip()
 
-    if req.password is not None and req.password.strip():
-        panel.password = req.password.strip()
-    if req.api_token is not None:
-        panel.api_token = req.api_token.strip() or None
+    if req.password is not None:
+        if req.password.strip():
+            panel.password = req.password.strip()
+        elif not panel.api_token:
+            raise HTTPException(status_code=400, detail="کلمه عبور پنل نمی‌تواند خالی باشد.")
+        else:
+            panel.password = "API_TOKEN_AUTH"
+
     if req.login_secret is not None:
         panel.login_secret = req.login_secret.strip() or None
     elif req.otp_secret is not None:
         panel.login_secret = req.otp_secret.strip() or None
     if req.version and req.version.strip():
         panel.version = req.version.strip()
+
+    # Test panel connection if credentials, base_url, or uri_path were modified
+    if any(x is not None for x in (req.base_url, req.uri_path, req.api_token, req.username, req.password)):
+        test_client = get_panel_client(panel, timeout=12.0)
+        try:
+            ok = await test_client.login()
+            if not ok:
+                raise HTTPException(status_code=400, detail="احراز هویت با مشخصات جدید وارد شده ناموفق بود. لطفاً دسترسی‌ها را بررسی نمایید.")
+            panel.is_healthy = True
+            panel.error_message = None
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"خطا در اتصال به پنل با مشخصات جدید: {str(exc)}")
+        finally:
+            await test_client.close()
 
     await record_audit(
         db,

@@ -68,6 +68,7 @@ class PanelHealthService:
             password=panel.password,
             api_token=panel.api_token,
             login_secret=panel.login_secret,
+            uri_path=getattr(panel, "uri_path", None),
             timeout=timeout,
         )
         _panel_client_pool[key] = client
@@ -96,6 +97,7 @@ class PanelHealthService:
                 password=panel.password,
                 api_token=panel.api_token,
                 login_secret=panel.login_secret,
+                uri_path=getattr(panel, "uri_path", None),
                 timeout=timeout,
             )
 

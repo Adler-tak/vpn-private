@@ -56,6 +56,7 @@ def get_panel_client(
         api_token = panel.get("api_token")
         login_secret = panel.get("login_secret")
         otp_secret = panel.get("otp_secret")
+        uri_path = panel.get("uri_path") or panel.get("web_base_path")
         name = panel.get("name", base_url)
     else:
         base_url = str(getattr(panel, "base_url", "") or "")
@@ -64,6 +65,7 @@ def get_panel_client(
         api_token = getattr(panel, "api_token", None)
         login_secret = getattr(panel, "login_secret", None)
         otp_secret = getattr(panel, "otp_secret", None)
+        uri_path = getattr(panel, "uri_path", None) or getattr(panel, "web_base_path", None)
         name = getattr(panel, "name", base_url)
 
     if _is_vpn_ui(panel):
@@ -78,6 +80,7 @@ def get_panel_client(
             otp_secret=otp_secret,
             timeout=timeout,
             verify_ssl=verify_ssl,
+            uri_path=uri_path,
         )
 
     logger.debug(f"Factory: creating ThreeXUIClient for panel '{name}'")
@@ -91,6 +94,7 @@ def get_panel_client(
         otp_secret=otp_secret,
         timeout=timeout,
         verify_ssl=verify_ssl,
+        uri_path=uri_path,
     )
 
 

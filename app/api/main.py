@@ -159,6 +159,8 @@ async def lifespan(app: FastAPI):
                 if "panel_type" not in cols:
                     sync_conn.execute(text("ALTER TABLE panels ADD COLUMN panel_type VARCHAR(32) DEFAULT '3x-ui'"))
                     sync_conn.execute(text("UPDATE panels SET panel_type = '3x-ui' WHERE panel_type IS NULL OR panel_type = ''"))
+                if "uri_path" not in cols:
+                    sync_conn.execute(text("ALTER TABLE panels ADD COLUMN uri_path VARCHAR(255)"))
             if "servers" in inspector.get_table_names():
                 srv_cols = [c["name"] for c in inspector.get_columns("servers")]
                 if "inbound_id" not in srv_cols:

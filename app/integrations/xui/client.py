@@ -1,4 +1,5 @@
 """Low-level asynchronous HTTP client for 3x-ui v3.11 panels."""
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -42,8 +43,8 @@ def generate_totp_code(secret: Optional[str]) -> Optional[str]:
     return str(h_code).zfill(6)
 
 
-def normalize_panel_base_url(url: str) -> str:
-    """Normalize 3x-ui panel URL by stripping UI paths (/panel, /panel/inbounds) and trailing slashes."""
+def normalize_panel_base_url(url: str, uri_path: Optional[str] = None) -> str:
+    """Normalize 3x-ui panel URL by stripping UI paths (/panel, /panel/inbounds) and trailing slashes, and cleanly attaching uri_path if provided."""
     if not url:
         return ""
     url = url.strip()
@@ -53,6 +54,21 @@ def normalize_panel_base_url(url: str) -> str:
     for suffix in ["/panel/inbounds", "/inbounds", "/panel"]:
         if url.endswith(suffix):
             url = url[:-len(suffix)].rstrip("/")
+
+    if uri_path:
+        clean_path = uri_path.strip()
+        if clean_path and clean_path != "/":
+            if not clean_path.startswith("/"):
+                clean_path = "/" + clean_path
+            if not clean_path.endswith("/"):
+                clean_path = clean_path + "/"
+
+            # Check if url already contains or ends with uri_path
+            parsed = urllib.parse.urlparse(url)
+            parsed_path = parsed.path.rstrip("/") + "/"
+            if not parsed_path.endswith(clean_path):
+                url = url.rstrip("/") + clean_path.rstrip("/")
+
     return url
 
 
@@ -62,17 +78,30 @@ class ThreeXUIClient:
     def __init__(
         self,
         base_url: str,
-        username: str,
-        password: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         api_token: Optional[str] = None,
         login_secret: Optional[str] = None,
         otp_secret: Optional[str] = None,
         timeout: float = 12.0,
         verify_ssl: bool = False,
+        uri_path: Optional[str] = None,
     ):
-        self.base_url = normalize_panel_base_url(base_url)
-        self.username = username
-        self.password = password
+        self.uri_path = uri_path
+        if self.uri_path:
+            clean_uri = self.uri_path.strip()
+            if clean_uri and clean_uri != "/":
+                if not clean_uri.startswith("/"):
+                    clean_uri = "/" + clean_uri
+                if not clean_uri.endswith("/"):
+                    clean_uri = clean_uri + "/"
+                self.uri_path = clean_uri
+            else:
+                self.uri_path = None
+
+        self.base_url = normalize_panel_base_url(base_url, uri_path=self.uri_path)
+        self.username = username or ""
+        self.password = password or ""
         self.api_token = api_token
         self.login_secret = (login_secret or "").strip()
         self.otp_secret = (otp_secret or "").strip()
@@ -94,6 +123,8 @@ class ThreeXUIClient:
             }
             if self._csrf_token:
                 default_headers["X-CSRF-Token"] = self._csrf_token
+            if self.api_token:
+                default_headers["Authorization"] = f"Bearer {self.api_token}"
 
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -102,6 +133,9 @@ class ThreeXUIClient:
                 follow_redirects=True,
                 headers=default_headers,
             )
+        else:
+            if self.api_token and "Authorization" not in self._client.headers:
+                self._client.headers["Authorization"] = f"Bearer {self.api_token}"
         return self._client
 
     async def close(self):
@@ -114,17 +148,42 @@ class ThreeXUIClient:
         """Authenticate with the 3x-ui panel."""
         client = await self._get_client()
 
-        # If API token is configured, test using Authorization header
+        # If API token is configured, test directly using Authorization Bearer header without needing username/password
         if self.api_token:
             headers = {"Authorization": f"Bearer {self.api_token}"}
+            client.headers.update(headers)
             try:
+                # 1. Probe server status endpoint
                 resp = await client.get("/panel/api/server/status", headers=headers)
-                data = resp.json() if resp.status_code == 200 else {}
-                if isinstance(data, dict) and data.get("success", False):
-                    self._is_authenticated = True
-                    client.headers.update(headers)
-                    return True
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        if isinstance(data, dict) and data.get("success", False):
+                            self._is_authenticated = True
+                            return True
+                    except Exception:
+                        pass
+
+                # 2. Fallback probe: inbounds list endpoint
+                resp_inb = await client.get("/panel/api/inbounds/list", headers=headers)
+                if resp_inb.status_code == 200:
+                    try:
+                        data_inb = resp_inb.json()
+                        if isinstance(data_inb, dict) and data_inb.get("success", False):
+                            self._is_authenticated = True
+                            return True
+                    except Exception:
+                        pass
+
+                # If token was rejected and no fallback credentials available
+                if not self.username or not self.password or self.username == "token_user" or self.password == "API_TOKEN_AUTH":
+                    raise PanelAuthError(f"Bearer token authentication failed on {self.base_url}: HTTP {resp.status_code}")
+                logger.warning(f"Bearer token auth failed for {self.base_url}: HTTP {resp.status_code}, falling back to session login.")
             except Exception as e:
+                if not self.username or not self.password or self.username == "token_user" or self.password == "API_TOKEN_AUTH":
+                    if isinstance(e, (PanelAuthError, PanelError)):
+                        raise
+                    raise PanelAuthError(f"Bearer token authentication failed for {self.base_url}: {e}") from e
                 logger.warning(f"Bearer token auth failed for {self.base_url}: {e}, trying session login.")
 
         # Modern 3x-ui CSRF token detection:
@@ -205,8 +264,14 @@ class ThreeXUIClient:
             await self.login()
 
         url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        req_headers = {}
+        if self.api_token:
+            req_headers["Authorization"] = f"Bearer {self.api_token}"
+            if "Authorization" not in client.headers:
+                client.headers["Authorization"] = f"Bearer {self.api_token}"
+
         try:
-            resp = await client.request(method, url, json=json_data)
+            resp = await client.request(method, url, json=json_data, headers=req_headers if req_headers else None)
 
             # Check for server failures (500, 502, 503, 504) - don't treat as session expiration!
             if resp.status_code >= 500:
