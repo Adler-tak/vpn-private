@@ -144,6 +144,12 @@ class ThreeXUIClient:
             self._client = None
             self._is_authenticated = False
 
+    def _build_url(self, endpoint: str) -> str:
+        """Safely attach endpoint to base_url preserving any subpath prefix."""
+        base = self.base_url.rstrip("/")
+        ep = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        return f"{base}{ep}"
+
     async def login(self) -> bool:
         """Authenticate with the 3x-ui panel."""
         client = await self._get_client()
@@ -154,7 +160,7 @@ class ThreeXUIClient:
             client.headers.update(headers)
             try:
                 # 1. Probe server status endpoint
-                resp = await client.get("/panel/api/server/status", headers=headers)
+                resp = await client.get(self._build_url("/panel/api/server/status"), headers=headers)
                 if resp.status_code == 200:
                     try:
                         data = resp.json()
@@ -165,7 +171,7 @@ class ThreeXUIClient:
                         pass
 
                 # 2. Fallback probe: inbounds list endpoint
-                resp_inb = await client.get("/panel/api/inbounds/list", headers=headers)
+                resp_inb = await client.get(self._build_url("/panel/api/inbounds/list"), headers=headers)
                 if resp_inb.status_code == 200:
                     try:
                         data_inb = resp_inb.json()
@@ -190,7 +196,7 @@ class ThreeXUIClient:
         # Modern 3x-ui CSRF token detection:
         # Fetch the login page first to acquire session cookie and CSRF token if protected
         try:
-            get_resp = await client.get(self.base_url + "/")
+            get_resp = await client.get(self._build_url("/"))
             if get_resp.status_code == 200:
                 match = re.search(r'name=["\']csrf-token["\'] content=["\']([^"\']+)["\']', get_resp.text)
                 if match:
@@ -201,7 +207,7 @@ class ThreeXUIClient:
             logger.debug(f"Notice: CSRF probe on {self.base_url}: {csrf_err}")
 
         # Fallback to session cookie login
-        login_url = "/login"
+        login_url = self._build_url("/login")
         payload = {"username": self.username, "password": self.password}
 
         # Resolve OTP / 2FA code and static LoginSecret
@@ -264,7 +270,7 @@ class ThreeXUIClient:
         if not self._is_authenticated and not self.api_token:
             await self.login()
 
-        url = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+        url = self._build_url(endpoint)
         req_headers = {}
         if self.api_token:
             req_headers["Authorization"] = f"Bearer {self.api_token}"
