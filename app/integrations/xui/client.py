@@ -158,7 +158,7 @@ class ThreeXUIClient:
                 if resp.status_code == 200:
                     try:
                         data = resp.json()
-                        if isinstance(data, dict) and data.get("success", False):
+                        if isinstance(data, dict) and data.get("success") is not False:
                             self._is_authenticated = True
                             return True
                     except Exception:
@@ -169,9 +169,10 @@ class ThreeXUIClient:
                 if resp_inb.status_code == 200:
                     try:
                         data_inb = resp_inb.json()
-                        if isinstance(data_inb, dict) and data_inb.get("success", False):
-                            self._is_authenticated = True
-                            return True
+                        if isinstance(data_inb, (dict, list)):
+                            if not isinstance(data_inb, dict) or data_inb.get("success") is not False:
+                                self._is_authenticated = True
+                                return True
                     except Exception:
                         pass
 

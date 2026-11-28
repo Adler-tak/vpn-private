@@ -4537,15 +4537,7 @@
           <p class="text-[10px] text-slate-400 mt-1">پروتکل (http/https)، دامنه و پورت پنل را وارد نمایید.</p>
         </div>
 
-        <div>
-          <label class="block text-xs text-slate-300 font-semibold mb-1 flex items-center justify-between">
-            <span>مسیر وب‌پنل (URI Path):</span>
-            <span class="text-[10px] text-indigo-400 font-normal">اختیاری (مثال: /subpath/)</span>
-          </label>
-          <input type="text" id="add-panel-uri-path" placeholder="/iuvL2HXvrwROLgSMhf4uRcYAAA/"
-            class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono text-left focus:outline-none focus:border-indigo-500" dir="ltr">
-          <p class="text-[10px] text-slate-400 mt-1">مسیر اختصاصی وب‌پنل (URI Path) که با «/» شروع و با «/» خاتمه می‌یابد.</p>
-        </div>
+
 
         <!-- API Token Auth (Recommended & 2FA-Immune) -->
         <div class="p-3.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
@@ -4630,15 +4622,7 @@
             class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono text-left focus:outline-none focus:border-amber-500" dir="ltr">
         </div>
 
-        <div>
-          <label class="block text-xs text-slate-300 font-semibold mb-1 flex items-center justify-between">
-            <span>مسیر وب‌پنل (URI Path):</span>
-            <span class="text-[10px] text-amber-400 font-normal">اختیاری (مثال: /subpath/)</span>
-          </label>
-          <input type="text" id="edit-panel-uri-path" placeholder="/iuvL2HXvrwROLgSMhf4uRcYAAA/"
-            class="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white font-mono text-left focus:outline-none focus:border-amber-500" dir="ltr">
-          <p class="text-[10px] text-slate-400 mt-1">مسیر اختصاصی وب‌پنل که با «/» شروع و با «/» پایان می‌پذیرد.</p>
-        </div>
+
 
         <!-- Edit API Token -->
         <div class="p-3.5 rounded-xl bg-amber-950/30 border border-amber-500/30 space-y-2">
@@ -7625,7 +7609,6 @@
       if (typeSelect) typeSelect.value = '3x-ui';
       document.getElementById('add-panel-name').value = '';
       document.getElementById('add-panel-url').value = '';
-      document.getElementById('add-panel-uri-path').value = '';
       document.getElementById('add-panel-api-token').value = '';
       document.getElementById('add-panel-username').value = '';
       document.getElementById('add-panel-password').value = '';
@@ -7637,7 +7620,6 @@
       const panel_type = typeSelect ? typeSelect.value : '3x-ui';
       const name = document.getElementById('add-panel-name').value.trim();
       const url = document.getElementById('add-panel-url').value.trim();
-      const uri_path = document.getElementById('add-panel-uri-path').value.trim();
       const api_token = document.getElementById('add-panel-api-token').value.trim();
       const username = document.getElementById('add-panel-username').value.trim();
       const password = document.getElementById('add-panel-password').value.trim();
@@ -7659,11 +7641,14 @@
         btn.innerHTML = '<i class="bi bi-arrow-repeat animate-spin"></i> در حال اعتبارسنجی و اتصال...';
       }
 
-      const payload = { name, base_url: url, panel_type };
-      if (username) payload.username = username;
-      if (password) payload.password = password;
-      if (api_token) payload.api_token = api_token;
-      if (uri_path) payload.uri_path = uri_path;
+      const payload = {
+        name,
+        base_url: url,
+        panel_type,
+        api_token: api_token || null,
+        username: username || (api_token ? 'token_user' : ''),
+        password: password || (api_token ? 'API_TOKEN_AUTH' : '')
+      };
 
       try {
         const res = await apiFetch('/panels', {
@@ -7692,7 +7677,6 @@
       if (typeSelect) typeSelect.value = panel.panel_type || '3x-ui';
       document.getElementById('edit-panel-name').value = panel.name || '';
       document.getElementById('edit-panel-url').value = panel.base_url || '';
-      document.getElementById('edit-panel-uri-path').value = '';
       document.getElementById('edit-panel-api-token').value = '';
       document.getElementById('edit-panel-username').value = '';
       document.getElementById('edit-panel-password').value = '';
@@ -7705,7 +7689,6 @@
       const panel_type = typeSelect ? typeSelect.value : '3x-ui';
       const name = document.getElementById('edit-panel-name').value.trim();
       const url = document.getElementById('edit-panel-url').value.trim();
-      const uri_path = document.getElementById('edit-panel-uri-path').value.trim();
       const api_token = document.getElementById('edit-panel-api-token').value.trim();
       const username = document.getElementById('edit-panel-username').value.trim();
       const password = document.getElementById('edit-panel-password').value.trim();
@@ -7713,10 +7696,17 @@
       const body = { panel_type };
       if (name) body.name = name;
       if (url) body.base_url = url;
-      if (uri_path) body.uri_path = uri_path;
       if (api_token) body.api_token = api_token;
-      if (username) body.username = username;
-      if (password) body.password = password;
+      if (username) {
+        body.username = username;
+      } else if (api_token) {
+        body.username = 'token_user';
+      }
+      if (password) {
+        body.password = password;
+      } else if (api_token) {
+        body.password = 'API_TOKEN_AUTH';
+      }
 
       const btn = document.getElementById('btn-submit-edit-panel');
       const orig = btn ? btn.innerHTML : '';

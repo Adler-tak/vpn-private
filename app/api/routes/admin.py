@@ -3993,7 +3993,7 @@ async def create_panel(
     if not name or not raw_url:
         raise HTTPException(status_code=400, detail="تمامی فیلدهای الزامی پنل را تکمیل فرمایید.")
 
-    if not api_token and (not username or not password):
+    if not api_token and (not username or not password or username == "token_user" or password == "API_TOKEN_AUTH"):
         raise HTTPException(status_code=400, detail="لطفاً یا کلید API Token و یا نام کاربری و رمز عبور را وارد فرمایید.")
 
     if len(raw_url) > 2048 or len(raw_url) < 8:
@@ -4020,8 +4020,8 @@ async def create_panel(
         raise HTTPException(status_code=400, detail="پنلی با این نام یا آدرس قبلاً در سیستم ثبت شده است.")
 
     # 1. Live test connection and login
-    effective_username = username or "token_user"
-    effective_password = password or "API_TOKEN_AUTH"
+    effective_username = username if (username and username != "token_user") else ("token_user" if api_token else (username or "admin"))
+    effective_password = password if (password and password != "API_TOKEN_AUTH") else ("API_TOKEN_AUTH" if api_token else (password or ""))
     temp_panel = Panel(
         name=name,
         base_url=base_url,
