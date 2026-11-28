@@ -6327,12 +6327,16 @@ async def add_bot_admin(
         target_user.role = UserRole.ADMIN
     else:
         target_user = User(
+            id=uuid.uuid4(),
             telegram_id=target_tg_id,
             first_name=f"Admin {target_tg_id}",
             username=None,
             role=UserRole.ADMIN,
+            referral_code=f"ref{secrets.token_hex(4)}",
         )
         db.add(target_user)
+        await db.flush()
+        db.add(Wallet(user_id=target_user.id, balance_irr=0))
 
     await db.commit()
 

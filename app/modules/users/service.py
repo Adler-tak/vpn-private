@@ -46,10 +46,12 @@ class UserService:
                 if user.role != UserRole.SUPER_ADMIN:
                     user.role = UserRole.SUPER_ADMIN
                     updated = True
-            else:
-                if user.role in (UserRole.SUPER_ADMIN, UserRole.ADMIN):
-                    user.role = UserRole.CUSTOMER
-                    updated = True
+
+            # Ensure user has a wallet even if created externally
+            wallet_res = await self.session.execute(select(Wallet).where(Wallet.user_id == user.id))
+            if not wallet_res.scalar_one_or_none():
+                self.session.add(Wallet(user_id=user.id, balance_irr=0))
+                updated = True
 
             # If user does not have a referrer yet, link them if a valid referral code was passed
             if user.referred_by_id is None and referrer_code:

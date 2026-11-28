@@ -1,7 +1,8 @@
-"""Dynamic Bot Texts Service with zero-overhead mtime file sync."""
+"""Dynamic Bot Texts Service with database (system_settings) persistence and cross-container sync."""
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -15,9 +16,11 @@ except ImportError:
     RULES_TEXT = "قوانین و شرایط استفاده از سرویس."
 
 APP_DIR = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = APP_DIR.parent
 PRIMARY_BOT_TEXTS_FILE = APP_DIR / "bot_texts.json"
-DATA_DIR = APP_DIR.parent / "data"
+DATA_DIR = PROJECT_ROOT / "data"
 DATA_BOT_TEXTS_FILE = DATA_DIR / "bot_texts.json"
+DB_FILE = PROJECT_ROOT / "vpn_private.db"
 
 BOT_TEXTS_FILE = PRIMARY_BOT_TEXTS_FILE
 
@@ -97,16 +100,14 @@ DEFAULT_BOT_TEXTS: Dict[str, Dict[str, str]] = {
 
 _cache: Dict[str, str] = {}
 _cache_mtime: float = 0.0
+_last_db_mtime: float = 0.0
+_last_sync_check: float = 0.0
 
 
-def _load_texts() -> Dict[str, str]:
-    """Read texts from bot_texts.json checking both primary (mounted /app/app) and data directories."""
-    global _cache, _cache_mtime
-    
+def _read_json_files() -> Dict[str, str]:
+    """Read newest existing JSON file backup."""
     check_files = [BOT_TEXTS_FILE] if BOT_TEXTS_FILE not in (PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE) else [PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE]
-
-    # Check which file is newer or exists
-    target_file = None
+    best_file = None
     max_mtime = 0.0
     for f in check_files:
         if f.exists():
@@ -114,40 +115,128 @@ def _load_texts() -> Dict[str, str]:
                 mt = os.path.getmtime(f)
                 if mt >= max_mtime:
                     max_mtime = mt
-                    target_file = f
+                    best_file = f
+            except Exception:
+                pass
+    if best_file:
+        try:
+            data = json.loads(best_file.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+        except Exception as e:
+            logger.debug(f"Error reading JSON from {best_file}: {e}")
+    return {}
+
+
+def _write_json_files(texts: Dict[str, str]) -> None:
+    """Write texts to JSON files as local and volume backups."""
+    json_str = json.dumps(texts, ensure_ascii=False, indent=2)
+    check_files = [BOT_TEXTS_FILE] if BOT_TEXTS_FILE not in (PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE) else [PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE]
+    for f in check_files:
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json_str, encoding="utf-8")
+        except Exception as e:
+            logger.debug(f"Could not write {f}: {e}")
+
+
+def _load_from_db() -> Dict[str, str]:
+    """Load bot texts directly from the database (system_settings table)."""
+    db_data: Dict[str, str] = {}
+    try:
+        from app.database.session import sync_session_factory
+        from app.database.models.setting import SystemSetting
+        from sqlalchemy import select
+
+        with sync_session_factory() as session:
+            res = session.execute(
+                select(SystemSetting).where(SystemSetting.category == "bot_texts")
+            )
+            rows = res.scalars().all()
+            for row in rows:
+                if row.key and row.value is not None:
+                    db_data[row.key] = row.value
+
+            # If DB is empty, migrate from JSON backup or defaults
+            if not db_data:
+                json_data = _read_json_files()
+                to_add = []
+                for k, meta in DEFAULT_BOT_TEXTS.items():
+                    val = json_data.get(k, meta["default"])
+                    db_data[k] = val
+                    to_add.append(
+                        SystemSetting(
+                            key=k,
+                            value=val,
+                            category="bot_texts",
+                            description=meta["description"],
+                        )
+                    )
+                if to_add:
+                    session.add_all(to_add)
+                    session.commit()
+            else:
+                # Seed any missing default keys into DB
+                missing = [k for k in DEFAULT_BOT_TEXTS if k not in db_data]
+                if missing:
+                    to_add = []
+                    for k in missing:
+                        meta = DEFAULT_BOT_TEXTS[k]
+                        val = meta["default"]
+                        db_data[k] = val
+                        to_add.append(
+                            SystemSetting(
+                                key=k,
+                                value=val,
+                                category="bot_texts",
+                                description=meta["description"],
+                            )
+                        )
+                    session.add_all(to_add)
+                    session.commit()
+    except Exception as e:
+        logger.debug(f"Could not load bot texts from DB: {e}")
+    return db_data
+
+
+def _load_texts() -> Dict[str, str]:
+    """Load texts from database with in-memory caching and cross-container mtime sync."""
+    global _cache, _cache_mtime, _last_db_mtime, _last_sync_check
+    now = time.monotonic()
+
+    # Rate-limit disk/DB checks to once per second if cache is warm
+    if _cache and (now - _last_sync_check) < 1.0:
+        return _cache
+    _last_sync_check = now
+
+    # Determine DB mtime
+    db_mtime = 0.0
+    for p in (DB_FILE, APP_DIR / "vpn_private.db", Path("vpn_private.db")):
+        if p.exists():
+            try:
+                db_mtime = max(db_mtime, os.path.getmtime(p))
             except Exception:
                 pass
 
-    if target_file is None:
-        try:
-            out_file = check_files[0]
-            out_file.parent.mkdir(parents=True, exist_ok=True)
-            initial = {k: v["default"] for k, v in DEFAULT_BOT_TEXTS.items()}
-            initial_json = json.dumps(initial, ensure_ascii=False, indent=2)
-            out_file.write_text(initial_json, encoding="utf-8")
-            if len(check_files) > 1:
-                try:
-                    check_files[1].parent.mkdir(parents=True, exist_ok=True)
-                    check_files[1].write_text(initial_json, encoding="utf-8")
-                except Exception:
-                    pass
-            _cache = initial
-            _cache_mtime = os.path.getmtime(out_file)
-            return _cache
-        except Exception as e:
-            logger.warning(f"Could not initialize bot_texts.json: {e}")
-            return {k: v["default"] for k, v in DEFAULT_BOT_TEXTS.items()}
+    if _cache and db_mtime > 0 and db_mtime == _last_db_mtime:
+        return _cache
 
-    try:
-        curr_mtime = max_mtime
-        if curr_mtime != _cache_mtime:
-            data = json.loads(target_file.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                _cache = data
-                _cache_mtime = curr_mtime
-    except Exception as e:
-        logger.warning(f"Error reading bot_texts.json from {target_file}: {e}")
+    # 1. Primary: Load from DB
+    db_texts = _load_from_db()
+    if db_texts:
+        _cache = db_texts
+        _last_db_mtime = db_mtime
+        _write_json_files(_cache)
+        return _cache
 
+    # 2. Secondary: Fallback to JSON files
+    json_texts = _read_json_files()
+    if json_texts:
+        _cache = {**{k: v["default"] for k, v in DEFAULT_BOT_TEXTS.items()}, **json_texts}
+        return _cache
+
+    # 3. Default fallback
+    _cache = {k: v["default"] for k, v in DEFAULT_BOT_TEXTS.items()}
     return _cache
 
 
@@ -192,34 +281,53 @@ def get_bot_text(key: str, default: Optional[str] = None) -> str:
 
 
 def update_bot_texts(texts: Dict[str, str]) -> Dict[str, str]:
-    """Atomically update bot texts in bot_texts.json in both mounted and data paths."""
-    global _cache, _cache_mtime
-    check_files = [BOT_TEXTS_FILE] if BOT_TEXTS_FILE not in (PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE) else [PRIMARY_BOT_TEXTS_FILE, DATA_BOT_TEXTS_FILE]
+    """Persist bot texts into database (system_settings) and file backups."""
+    global _cache, _last_db_mtime, _last_sync_check
+    clean = {str(k): str(v) for k, v in texts.items() if v is not None}
 
-    current = {}
-    for f in check_files:
-        if f.exists():
+    # 1. Update in-memory cache
+    if not _cache:
+        _load_texts()
+    _cache.update(clean)
+
+    # 2. Persist to database (system_settings table)
+    try:
+        from app.database.session import sync_session_factory
+        from app.database.models.setting import SystemSetting
+
+        with sync_session_factory() as session:
+            for k, v in clean.items():
+                setting = session.get(SystemSetting, k)
+                if setting:
+                    setting.value = v
+                    setting.category = "bot_texts"
+                else:
+                    desc = DEFAULT_BOT_TEXTS.get(k, {}).get("description", "متن سفارشی ربات")
+                    session.add(
+                        SystemSetting(
+                            key=k,
+                            value=v,
+                            category="bot_texts",
+                            description=desc,
+                        )
+                    )
+            session.commit()
+    except Exception as e:
+        logger.warning(f"Could not persist bot texts to database: {e}")
+
+    # 3. Write to JSON files for backup
+    _write_json_files(_cache)
+
+    # Refresh DB mtime tracking
+    for p in (DB_FILE, APP_DIR / "vpn_private.db", Path("vpn_private.db")):
+        if p.exists():
             try:
-                raw = json.loads(f.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    current.update(raw)
-                    break
+                _last_db_mtime = os.path.getmtime(p)
+                break
             except Exception:
                 pass
 
-    current.update({str(k): str(v) for k, v in texts.items() if v is not None})
-    json_str = json.dumps(current, ensure_ascii=False, indent=2)
-
-    for f in check_files:
-        try:
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_text(json_str, encoding="utf-8")
-            _cache_mtime = os.path.getmtime(f)
-        except Exception as e:
-            logger.debug(f"Could not write {f}: {e}")
-
-    _cache = current
-    logger.info(f"Updated {len(texts)} bot texts successfully.")
+    logger.info(f"Updated {len(clean)} bot texts in database and files.")
     return _cache
 
 
