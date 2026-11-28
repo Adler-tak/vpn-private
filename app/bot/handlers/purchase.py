@@ -1,5 +1,6 @@
 """Customer purchase and payment workflows."""
 import io
+import html
 import uuid
 import logging
 import qrcode
@@ -854,7 +855,8 @@ async def handle_card_receipt_photo(
     receipt = receipt_res.scalar_one_or_none()
 
     if receipt:
-        receipt.telegram_file_id = file_id
+        if file_id:
+            receipt.telegram_file_id = file_id
         receipt.submitted_amount_toman = payment.amount_toman
         if txid_val:
             receipt.transaction_ref = txid_val
@@ -903,7 +905,6 @@ async def handle_card_receipt_photo(
     await state.clear()
 
     # Notify Admins with receipt photo and approval buttons using safe HTML formatting
-    import html
     u_username = f"@{html.escape(db_user.username)}" if db_user.username else "ندارد"
     u_name = html.escape(db_user.first_name or "")
 
